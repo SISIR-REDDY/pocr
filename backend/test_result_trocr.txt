@@ -1,0 +1,18 @@
+Status: 200
+
+Full response:
+{
+  "success": false,
+  "fields": {},
+  "error": "Text could not be extracted from the document",
+  "confidence": 0.0,
+  "raw_text": "",
+  "debug": {
+    "ocr_confidence": 0.0,
+    "model_used": "printed",
+    "preprocessing": "success",
+    "model_selection": "printed"
+  }
+}
+
+>>> ERROR: Text could not be extracted from the document

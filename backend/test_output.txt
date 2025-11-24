@@ -1,0 +1,18 @@
+Status: 200
+
+Full response:
+{
+  "success": false,
+  "fields": {},
+  "error": "Text could not be extracted: OCR model failed: You need to specify either `text` or `text_target`.",
+  "confidence": 0.0,
+  "raw_text": "",
+  "debug": {
+    "file_type": "image",
+    "ocr_error": "OCR model failed: You need to specify either `text` or `text_target`.",
+    "preprocessing": "success",
+    "model_selection": "printed"
+  }
+}
+
+>>> ERROR: Text could not be extracted: OCR model failed: You need to specify either `text` or `text_target`.

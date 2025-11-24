@@ -1,0 +1,121 @@
+2025-11-23 23:21:32 - paddleocr_service - INFO - initialize_paddleocr:42 - Initializing PaddleOCR...
+2025-11-23 23:21:32 - paddleocr_service - INFO - initialize_paddleocr:43 - GPU enabled: False
+2025-11-23 23:21:32 - paddleocr_service - WARNING - initialize_paddleocr:58 - use_gpu parameter not supported, using default
+INFO: Could not find files for the given pattern(s).
+C:\Users\SISIR REDDY\AppData\Local\Programs\Python\Python312\Lib\site-packages\paddle\utils\cpp_extension\extension_utils.py:718: UserWarning: No ccache found. Please be aware that recompiling all source files may be required. You can download and install ccache from: https://github.com/ccache/ccache/blob/master/doc/INSTALL.md
+  warnings.warn(warning_message)
+Creating model: ('PP-LCNet_x1_0_doc_ori', None)
+Model files already exist. Using cached files. To redownload, please delete the directory manually: `C:\Users\SISIR REDDY\.paddlex\official_models\PP-LCNet_x1_0_doc_ori`.
+WARNING: Logging before InitGoogleLogging() is written to STDERR
+I1123 23:21:33.965652 13344 onednn_context.cc:81] oneDNN v3.6.2
+Creating model: ('UVDoc', None)
+Model files already exist. Using cached files. To redownload, please delete the directory manually: `C:\Users\SISIR REDDY\.paddlex\official_models\UVDoc`.
+Creating model: ('PP-LCNet_x1_0_textline_ori', None)
+Model files already exist. Using cached files. To redownload, please delete the directory manually: `C:\Users\SISIR REDDY\.paddlex\official_models\PP-LCNet_x1_0_textline_ori`.
+Creating model: ('PP-OCRv5_server_det', None)
+Model files already exist. Using cached files. To redownload, please delete the directory manually: `C:\Users\SISIR REDDY\.paddlex\official_models\PP-OCRv5_server_det`.
+Creating model: ('en_PP-OCRv5_mobile_rec', None)
+Model files already exist. Using cached files. To redownload, please delete the directory manually: `C:\Users\SISIR REDDY\.paddlex\official_models\en_PP-OCRv5_mobile_rec`.
+2025-11-23 23:21:36 - paddleocr_service - INFO - initialize_paddleocr:65 - [OK] PaddleOCR initialized successfully
+[2025-11-23 23:21:36,420] [    INFO] paddleocr_service.py:65 - [OK] PaddleOCR initialized successfully
+2025-11-23 23:21:36 - paddleocr_service - INFO - extract_text_from_image:112 - Running PaddleOCR text detection and recognition...
+[2025-11-23 23:21:36,421] [    INFO] paddleocr_service.py:112 - Running PaddleOCR text detection and recognition...
+2025-11-23 23:21:39 - paddleocr_service - INFO - extract_text_from_image:114 - Raw PaddleOCR result type: <class 'list'>
+[2025-11-23 23:21:39,890] [    INFO] paddleocr_service.py:114 - Raw PaddleOCR result type: <class 'list'>
+2025-11-23 23:21:39 - paddleocr_service - INFO - extract_text_from_image:116 - Raw PaddleOCR result length: 1
+[2025-11-23 23:21:39,890] [    INFO] paddleocr_service.py:116 - Raw PaddleOCR result length: 1
+2025-11-23 23:21:39 - paddleocr_service - INFO - extract_text_from_image:118 - First item type: <class 'paddlex.inference.pipelines.ocr.result.OCRResult'>
+[2025-11-23 23:21:39,891] [    INFO] paddleocr_service.py:118 - First item type: <class 'paddlex.inference.pipelines.ocr.result.OCRResult'>
+2025-11-23 23:21:39 - paddleocr_service - INFO - extract_text_from_image:119 - First item content: {'input_path': None, 'page_index': None, 'doc_preprocessor_res': {'input_path': None, 'page_index': None, 'input_img': array([[[255, ..., 255],
+        ...,
+        [255, ..., 255]],
+
+       ...,
+
+       [[255, ..., 255],
+        ...,
+        [255, ..., 255]]], dtype=uint8), 'model_settings': {'use_doc_orientation_classify': True, 'use_doc_unwarping': True}, 'angle': 0, 'rot_img': array([[[255, ..., 255],
+        ...,
+        [255, ..., 255]],
+
+       ...,
+
+       [[255, ..., 255],
+        ...,
+        [255, ..., 255]]], dtype=uint8), 'output_img': array([[[255, ..., 255],
+        ...,
+        [255, ..., 255]],
+
+       ...,
+
+       [[255, ..., 255],
+        ...,
+        [255, ..., 255]]], dtype=uint8)}, 'dt_polys': [array([[ 0, 10],
+       ...,
+       [ 0, 25]], dtype=int16), array([[ 0, 54],
+       ...,
+       [ 0, 70]], dtype=int16)], 'model_settings': {'use_doc_preprocessor': True, 'use_textline_orientation': True}, 'text_det_params': {'limit_side_len': 64, 'limit_type': 'min', 'thresh': 0.3, 'max_side_limit': 4000, 'box_thresh': 0.6, 'unclip_ratio': 1.5}, 'text_type': 'general', 'text_rec_score_thresh': 0.0, 'return_word_box': False, 'rec_texts': ['Name: John Doe', 'ge: 30'], 'rec_scores': [0.9917060732841492, 0.9541364312171936], 'rec_polys': [array([[ 0, 10],
+       ...,
+       [ 0, 25]], dtype=int16), array([[ 0, 54],
+       ...,
+       [ 0, 70]], dtype=int16)], 'vis_fonts': [<paddlex.utils.fonts.Font object at 0x000001A9DE8DD340>, <paddlex.utils.fonts.Font object at 0x000001A9DE8DD340>], 'textline_orientation_angles': [0, 0], 'rec_boxes': array([[ 0, ..., 25],
+       [ 0, ..., 70]], dtype=int16)}
+[2025-11-23 23:21:39,892] [    INFO] paddleocr_service.py:119 - First item content: {'input_path': None, 'page_index': None, 'doc_preprocessor_res': {'input_path': None, 'page_index': None, 'input_img': array([[[255, ..., 255],
+        ...,
+        [255, ..., 255]],
+
+       ...,
+
+       [[255, ..., 255],
+        ...,
+        [255, ..., 255]]], dtype=uint8), 'model_settings': {'use_doc_orientation_classify': True, 'use_doc_unwarping': True}, 'angle': 0, 'rot_img': array([[[255, ..., 255],
+        ...,
+        [255, ..., 255]],
+
+       ...,
+
+       [[255, ..., 255],
+        ...,
+        [255, ..., 255]]], dtype=uint8), 'output_img': array([[[255, ..., 255],
+        ...,
+        [255, ..., 255]],
+
+       ...,
+
+       [[255, ..., 255],
+        ...,
+        [255, ..., 255]]], dtype=uint8)}, 'dt_polys': [array([[ 0, 10],
+       ...,
+       [ 0, 25]], dtype=int16), array([[ 0, 54],
+       ...,
+       [ 0, 70]], dtype=int16)], 'model_settings': {'use_doc_preprocessor': True, 'use_textline_orientation': True}, 'text_det_params': {'limit_side_len': 64, 'limit_type': 'min', 'thresh': 0.3, 'max_side_limit': 4000, 'box_thresh': 0.6, 'unclip_ratio': 1.5}, 'text_type': 'general', 'text_rec_score_thresh': 0.0, 'return_word_box': False, 'rec_texts': ['Name: John Doe', 'ge: 30'], 'rec_scores': [0.9917060732841492, 0.9541364312171936], 'rec_polys': [array([[ 0, 10],
+       ...,
+       [ 0, 25]], dtype=int16), array([[ 0, 54],
+       ...,
+       [ 0, 70]], dtype=int16)], 'vis_fonts': [<paddlex.utils.fonts.Font object at 0x000001A9DE8DD340>, <paddlex.utils.fonts.Font object at 0x000001A9DE8DD340>], 'textline_orientation_angles': [0, 0], 'rec_boxes': array([[ 0, ..., 25],
+       [ 0, ..., 70]], dtype=int16)}
+2025-11-23 23:21:39 - paddleocr_service - INFO - extract_text_from_image:162 - Extracted 15 text lines, 29 characters
+[2025-11-23 23:21:39,892] [    INFO] paddleocr_service.py:162 - Extracted 15 text lines, 29 characters
+2025-11-23 23:21:39 - paddleocr_service - INFO - extract_text_from_image:163 - Average confidence: 0.50
+[2025-11-23 23:21:39,892] [    INFO] paddleocr_service.py:163 - Average confidence: 0.50
+Importing PaddleOCR service...
+Creating test image...
+Extracting text...
+
+Result: {'raw_text': 'n\na\no\nt\no\ne\ne\ne\ne\ne\ne\ne\ni\ne\ne', 'avg_confidence': 0.5, 'line_count': 15, 'error': None}
+SUCCESS: Extracted 29 characters
+Text: n
+a
+o
+t
+o
+e
+e
+e
+e
+e
+e
+e
+i
+e
+e

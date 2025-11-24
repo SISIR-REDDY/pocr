@@ -1,0 +1,29 @@
+Status: 200
+
+Full response:
+{
+  "success": true,
+  "fields": {
+    "name": null,
+    "age": null,
+    "gender": null,
+    "phone": null,
+    "email": null,
+    "address": null
+  },
+  "confidence": 0.2,
+  "raw_text": "n a o t o e e e e e e e i e",
+  "model_used": "printed",
+  "field_confidences": {
+    "name": 0.0,
+    "age": 0.0,
+    "gender": 0.0,
+    "phone": 0.0,
+    "email": 0.0,
+    "address": 0.0
+  },
+  "debug": {
+    "preprocessing": "success",
+    "model_selection": "printed"
+  }
+}
