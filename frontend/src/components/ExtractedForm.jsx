@@ -32,13 +32,50 @@ export default function ExtractedForm({
     onSubmit(formValues)
   }
 
-  const fieldLabels = {
-    name: 'Full Name',
-    age: 'Age',
-    gender: 'Gender',
-    phone: 'Phone Number',
-    email: 'Email Address',
-    address: 'Address',
+  // Generate human-readable label for any field name
+  const getFieldLabel = (fieldName) => {
+    const labelMap = {
+      name: 'Full Name',
+      age: 'Age',
+      gender: 'Gender',
+      phone: 'Phone Number',
+      email: 'Email Address',
+      address: 'Address',
+      address_line1: 'Address Line 1',
+      address_line2: 'Address Line 2',
+      city: 'City',
+      state: 'State',
+      country: 'Country',
+      date_of_birth: 'Date of Birth',
+      pin_code: 'PIN Code',
+      aadhaar: 'Aadhaar Number',
+      pan: 'PAN Number',
+      passport: 'Passport Number',
+      occupation: 'Occupation',
+    }
+    
+    // If field name exists in map, use it; otherwise format the field name
+    if (labelMap[fieldName]) {
+      return labelMap[fieldName]
+    }
+    
+    // Format unknown field names: date_of_birth -> Date of Birth
+    return fieldName
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ')
+  }
+  
+  // Get field type for input rendering
+  const getFieldType = (fieldName) => {
+    if (fieldName === 'email') return 'email'
+    if (fieldName === 'age' || fieldName === 'pin_code') return 'number'
+    return 'text'
+  }
+  
+  // Check if field should be a textarea
+  const isTextareaField = (fieldName) => {
+    return fieldName === 'address' || fieldName === 'address_line1' || fieldName === 'address_line2'
   }
 
   return (
@@ -63,7 +100,7 @@ export default function ExtractedForm({
             <FieldConfidenceBar
               key={field}
               confidence={conf}
-              fieldName={fieldLabels[field] || field}
+              fieldName={getFieldLabel(field)}
             />
           ))}
         </div>
@@ -77,41 +114,54 @@ export default function ExtractedForm({
         </div>
 
         <div className="space-y-6">
-          {Object.entries(fieldLabels).map(([fieldName, label], index) => (
+          {Object.entries(formValues || {}).map(([fieldName, value], index) => {
+            const label = getFieldLabel(fieldName)
+            return (
+              <motion.div
+                key={fieldName}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.1 * index }}
+                className="space-y-2"
+              >
+                <label className="block text-sm font-semibold text-white/90">
+                  {label}
+                </label>
+                {isTextareaField(fieldName) ? (
+                  <textarea
+                    value={value || ''}
+                    onChange={(e) => handleFieldChange(fieldName, e.target.value)}
+                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
+                    rows={3}
+                    placeholder={`Enter ${label.toLowerCase()}`}
+                  />
+                ) : (
+                  <input
+                    type={getFieldType(fieldName)}
+                    value={value || ''}
+                    onChange={(e) => handleFieldChange(fieldName, e.target.value)}
+                    className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    placeholder={`Enter ${label.toLowerCase()}`}
+                  />
+                )}
+                {fieldConfidences?.[fieldName] && (
+                  <p className="text-xs text-white/50">
+                    Confidence: {Math.round(fieldConfidences[fieldName] * 100)}%
+                  </p>
+                )}
+              </motion.div>
+            )
+          })}
+          {(!formValues || Object.keys(formValues).length === 0) && (
             <motion.div
-              key={fieldName}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.1 * index }}
-              className="space-y-2"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="text-center py-8 text-white/60"
             >
-              <label className="block text-sm font-semibold text-white/90">
-                {label}
-              </label>
-              {fieldName === 'address' ? (
-                <textarea
-                  value={formValues[fieldName] || ''}
-                  onChange={(e) => handleFieldChange(fieldName, e.target.value)}
-                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none"
-                  rows={3}
-                  placeholder={`Enter ${label.toLowerCase()}`}
-                />
-              ) : (
-                <input
-                  type={fieldName === 'email' ? 'email' : fieldName === 'age' ? 'number' : 'text'}
-                  value={formValues[fieldName] || ''}
-                  onChange={(e) => handleFieldChange(fieldName, e.target.value)}
-                  className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                  placeholder={`Enter ${label.toLowerCase()}`}
-                />
-              )}
-              {fieldConfidences?.[fieldName] && (
-                <p className="text-xs text-white/50">
-                  Confidence: {Math.round(fieldConfidences[fieldName] * 100)}%
-                </p>
-              )}
+              <p>No fields were extracted from this document.</p>
+              <p className="text-sm mt-2">Please check the raw text output or try a different image.</p>
             </motion.div>
-          ))}
+          )}
         </div>
 
         <div className="mt-8 flex gap-4">

@@ -1,6 +1,7 @@
 """
 Language detector for OCR text.
 Detects script based on Unicode ranges for English, Hindi (Devanagari), and Arabic.
+Optimized for speed using regex and text sampling.
 """
 
 import re
@@ -14,18 +15,20 @@ from utils.logger import setup_logger
 
 logger = setup_logger("language_detector")
 
-# Unicode ranges
-ARABIC_RANGE = (0x0600, 0x06FF)  # Arabic script
-DEVANAGARI_RANGE = (0x0900, 0x097F)  # Devanagari (Hindi) script
+# Unicode ranges (using regex patterns for speed)
+ARABIC_PATTERN = re.compile(r'[\u0600-\u06FF]')  # Arabic script
+DEVANAGARI_PATTERN = re.compile(r'[\u0900-\u097F]')  # Devanagari (Hindi) script
 ENGLISH_PATTERN = re.compile(r'[a-zA-Z]')
 
 
-def detect_language(text: str) -> Literal['en', 'hi', 'ar', 'multi']:
+def detect_language(text: str, sample_size: int = 500) -> Literal['en', 'hi', 'ar', 'multi']:
     """
-    Detect language/script from text based on Unicode ranges.
+    Fast language/script detection from text based on Unicode ranges.
+    Uses a sample of text for speed (default 500 chars).
     
     Args:
         text: Input text to analyze
+        sample_size: Maximum characters to analyze (for performance)
         
     Returns:
         Language code: 'en' (English), 'hi' (Hindi), 'ar' (Arabic), or 'multi' (mixed)
@@ -34,38 +37,28 @@ def detect_language(text: str) -> Literal['en', 'hi', 'ar', 'multi']:
         return 'en'  # Default to English
     
     try:
-        has_english = bool(ENGLISH_PATTERN.search(text))
-        has_arabic = False
-        has_devanagari = False
+        # Use only a sample of text for faster detection
+        sample_text = text[:sample_size] if len(text) > sample_size else text
         
-        # Check for Arabic characters
-        for char in text:
-            code_point = ord(char)
-            if ARABIC_RANGE[0] <= code_point <= ARABIC_RANGE[1]:
-                has_arabic = True
-                break
-        
-        # Check for Devanagari (Hindi) characters
-        for char in text:
-            code_point = ord(char)
-            if DEVANAGARI_RANGE[0] <= code_point <= DEVANAGARI_RANGE[1]:
-                has_devanagari = True
-                break
+        # Use pre-compiled regex patterns for fastest detection (single pass)
+        has_english = bool(ENGLISH_PATTERN.search(sample_text))
+        has_arabic = bool(ARABIC_PATTERN.search(sample_text))
+        has_devanagari = bool(DEVANAGARI_PATTERN.search(sample_text))
         
         # Count languages detected
         languages_detected = sum([has_english, has_arabic, has_devanagari])
         
         if languages_detected > 1:
-            logger.info(f"Detected multiple languages: EN={has_english}, HI={has_devanagari}, AR={has_arabic}")
+            logger.debug(f"Detected multiple languages: EN={has_english}, HI={has_devanagari}, AR={has_arabic}")
             return 'multi'
         elif has_arabic:
-            logger.info("Detected Arabic script")
+            logger.debug("Detected Arabic script")
             return 'ar'
         elif has_devanagari:
-            logger.info("Detected Hindi (Devanagari) script")
+            logger.debug("Detected Hindi (Devanagari) script")
             return 'hi'
         else:
-            logger.info("Detected English (default)")
+            logger.debug("Detected English (default)")
             return 'en'
             
     except Exception as e:

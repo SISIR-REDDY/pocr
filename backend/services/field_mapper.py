@@ -57,7 +57,8 @@ AGE_KEYWORDS = {
 
 def fix_ocr_errors(text: str) -> str:
     """
-    Fix common OCR errors in text.
+    Premium OCR error correction: Comprehensive dictionary of common mistakes.
+    Fixes place names, common words, and character confusions.
     
     Args:
         text: Raw OCR text
@@ -69,24 +70,114 @@ def fix_ocr_errors(text: str) -> str:
         return ""
     
     try:
-        # Common OCR mistakes
-        corrections = {
-            # Number/letter confusions
-            r'\b0([a-z])': r'O\1',  # 0 -> O at word start
-            r'([a-z])0\b': r'\1O',  # 0 -> O at word end
-            r'\b1([a-z])': r'I\1',  # 1 -> I at word start (context-dependent)
-            r'([a-z])1\b': r'\1l',  # 1 -> l at word end
+        # Comprehensive OCR error correction dictionary
+        # Format: (incorrect, correct) - case-insensitive word replacements
+        word_corrections = {
+            # Place names (Indian states/cities)
+            'kamataha': 'Karnataka',
+            'kamataka': 'Karnataka',
+            'kamatakha': 'Karnataka',
+            'karnatakha': 'Karnataka',
+            'karnatka': 'Karnataka',
+            'bangalor': 'Bangalore',
+            'bangalore': 'Bangalore',
+            'bengaluru': 'Bangalore',
+            'mumbai': 'Mumbai',
+            'mumbay': 'Mumbai',
+            'delhi': 'Delhi',
+            'delh': 'Delhi',
+            'chennai': 'Chennai',
+            'madras': 'Chennai',
+            'hyderabad': 'Hyderabad',
+            'pune': 'Pune',
+            'puna': 'Pune',
             
-            # Common character confusions
-            r'rn': 'm',  # rn often misread as m
-            r'vv': 'w',  # vv often misread as w
-            r'ii': 'n',  # ii sometimes misread as n
+            # Common words
+            'layeut': 'Layout',
+            'layaut': 'Layout',
+            'layot': 'Layout',
+            'adebress': 'Address',
+            'aderess': 'Address',
+            'adress': 'Address',
+            'adres': 'Address',
+            'linet': 'Line',
+            'linet1': 'Line1',
+            'linet2': 'Line2',
+            'grender': 'Gender',
+            'gendr': 'Gender',
+            'midde': 'Middle',
+            'middl': 'Middle',
+            'mmber': 'Number',
+            'numb': 'Number',
+            'numbber': 'Number',
+            'phome': 'Phone',
+            'phne': 'Phone',
+            'emal': 'Email',
+            'emai': 'Email',
+            'emial': 'Email',
+            'read': 'Road',
+            'rood': 'Road',
+            'strt': 'Street',
+            'stret': 'Street',
+            'stree': 'Street',
+            'streeet': 'Street',
+            
+            # Common OCR character mistakes
+            'rn': 'm',  # rn -> m (in context)
+            'vv': 'w',  # vv -> w
+            'ii': 'n',  # ii -> n (context-dependent)
         }
         
-        for pattern, replacement in corrections.items():
-            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+        # Apply word-level corrections (case-insensitive)
+        words = text.split()
+        corrected_words = []
+        for word in words:
+            # Remove punctuation for matching, keep it for replacement
+            word_lower = word.lower().strip('.,!?;:()[]{}"\'')
+            if word_lower in word_corrections:
+                # Preserve original case pattern if possible
+                if word.isupper():
+                    corrected = word_corrections[word_lower].upper()
+                elif word[0].isupper():
+                    corrected = word_corrections[word_lower].capitalize()
+                else:
+                    corrected = word_corrections[word_lower].lower()
+                
+                # Replace the word, preserving punctuation
+                if word != word_lower:
+                    # Has punctuation - preserve it
+                    corrected = word.replace(word_lower, corrected)
+                corrected_words.append(corrected)
+            else:
+                corrected_words.append(word)
         
-        return text
+        text = ' '.join(corrected_words)
+        
+        # Pattern-based corrections (for character-level mistakes)
+        pattern_corrections = [
+            # Fix common character confusions in context
+            (r'\b([A-Z])0([a-z])', r'\1O\2'),  # Capital letter + 0 -> O
+            (r'([a-z])0([A-Z])', r'\1O\2'),  # 0 between letters -> O
+            (r'\b0([A-Z][a-z]+)', r'O\1'),  # 0 at word start before capital -> O
+            (r'([a-z]+)0\b', r'\1O'),  # 0 at word end after lowercase -> O
+            
+            # Fix spacing issues
+            (r'([a-z])([A-Z])', r'\1 \2'),  # Add space between lowercase and uppercase
+            (r'([A-Z])([A-Z][a-z])', r'\1 \2'),  # Add space between two words
+            
+            # Fix common OCR mistakes in numbers
+            (r'(\d)\s+(\d)', r'\1\2'),  # Remove spaces in numbers
+            (r'([a-z])(\d)', r'\1 \2'),  # Add space before number
+            (r'(\d)([a-z])', r'\1 \2'),  # Add space after number
+        ]
+        
+        for pattern, replacement in pattern_corrections:
+            text = re.sub(pattern, replacement, text)
+        
+        # Fix repeated characters (common OCR error)
+        text = re.sub(r'([a-zA-Z])\1{2,}', r'\1\1', text)  # aaa -> aa
+        
+        return text.strip()
     except Exception as e:
         logger.warning(f"OCR error correction failed: {e}")
         return text
@@ -135,9 +226,10 @@ def normalize_text(text: str) -> str:
 def extract_name(text: str, language: str = 'en') -> Optional[str]:
     """Extract name from text with multilingual support. Handles First/Middle/Last name patterns."""
     try:
-        # Detect language if not provided
-        if not language or language == 'multi':
-            language = detect_language(text)
+        # Skip language detection for speed - use provided language or default to 'en'
+        # Language detection is now done once at the field extraction level
+        if not language:
+            language = 'en'  # Default to English for speed
         
         # First, try to extract multi-part names (First, Middle, Last)
         # Handle OCR errors like "mame" instead of "name", "norme" instead of "name"
@@ -377,15 +469,180 @@ def extract_email(text: str) -> Optional[str]:
         return None
 
 
+def extract_date_of_birth(text: str) -> Optional[str]:
+    """Extract date of birth from text."""
+    try:
+        patterns = [
+            r'(?:date\s+of\s+birth|dob|birth\s+date|d\.o\.b\.?)[:\s\-]+(\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})',
+            r'(?:date\s+of\s+birth|dob|birth\s+date|d\.o\.b\.?)[:\s\-]+(\d{4}[-/.]\d{1,2}[-/.]\d{1,2})',
+            r'\b(\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})\b',  # Generic date format
+            r'\b(\d{4}[-/.]\d{1,2}[-/.]\d{1,2})\b',  # YYYY-MM-DD format
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                dob = match.group(1).strip()
+                # Basic validation - should contain numbers and separators
+                if re.match(r'\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}', dob):
+                    logger.info(f"[DOB] Extracted: {dob}")
+                    return dob
+        
+        return None
+    except Exception as e:
+        logger.warning(f"DOB extraction failed: {e}")
+        return None
+
+
+def extract_pin_code(text: str) -> Optional[str]:
+    """Extract PIN/ZIP code from text."""
+    try:
+        patterns = [
+            r'(?:pin\s+code|pincode|zip\s+code|postal\s+code|zip)[:\s\-]+(\d{4,10})',
+            r'(?:pin|pincode|zip)[:\s\-]+(\d{4,10})',
+            r'\b(\d{4,10})\b(?=\s*(?:phone|email|state|country|$))',  # Standalone 4-10 digit number
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                pin = match.group(1).strip()
+                # Validate length (4-10 digits for various countries)
+                if 4 <= len(pin) <= 10 and pin.isdigit():
+                    logger.info(f"[PIN] Extracted: {pin}")
+                    return pin
+        
+        return None
+    except Exception as e:
+        logger.warning(f"PIN extraction failed: {e}")
+        return None
+
+
+def extract_aadhaar(text: str) -> Optional[str]:
+    """Extract Aadhaar number from text (Indian ID)."""
+    try:
+        patterns = [
+            r'(?:aadhaar|aadhar|uid)[:\s\-]+(\d{4}\s?\d{4}\s?\d{4})',
+            r'(?:aadhaar|aadhar|uid)[:\s\-]+(\d{12})',
+            r'\b(\d{4}\s?\d{4}\s?\d{4})\b',  # Format: XXXX XXXX XXXX
+            r'\b(\d{12})\b',  # 12 digits
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                aadhaar = match.group(1).strip().replace(' ', '')
+                # Validate: should be 12 digits
+                if len(aadhaar) == 12 and aadhaar.isdigit():
+                    # Format as XXXX XXXX XXXX
+                    formatted = f"{aadhaar[:4]} {aadhaar[4:8]} {aadhaar[8:]}"
+                    logger.info(f"[AADHAAR] Extracted: {formatted}")
+                    return formatted
+        
+        return None
+    except Exception as e:
+        logger.warning(f"Aadhaar extraction failed: {e}")
+        return None
+
+
+def extract_pan(text: str) -> Optional[str]:
+    """Extract PAN (Permanent Account Number) from text (Indian tax ID)."""
+    try:
+        # PAN format: ABCDE1234F (5 letters, 4 digits, 1 letter)
+        pattern = r'(?:pan|permanent\s+account\s+number)[:\s\-]+([A-Z]{5}\d{4}[A-Z])'
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            pan = match.group(1).upper()
+            logger.info(f"[PAN] Extracted: {pan}")
+            return pan
+        
+        # Also try without label
+        pattern = r'\b([A-Z]{5}\d{4}[A-Z])\b'
+        match = re.search(pattern, text)
+        if match:
+            pan = match.group(1).upper()
+            logger.info(f"[PAN] Extracted (no label): {pan}")
+            return pan
+        
+        return None
+    except Exception as e:
+        logger.warning(f"PAN extraction failed: {e}")
+        return None
+
+
+def extract_passport(text: str) -> Optional[str]:
+    """Extract passport number from text."""
+    try:
+        patterns = [
+            r'(?:passport|passport\s+no|passport\s+number)[:\s\-]+([A-Z0-9]{6,12})',
+            r'\b([A-Z]{1,2}\d{6,9})\b',  # Common passport formats
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                passport = match.group(1).upper()
+                # Basic validation
+                if 6 <= len(passport) <= 12:
+                    logger.info(f"[PASSPORT] Extracted: {passport}")
+                    return passport
+        
+        return None
+    except Exception as e:
+        logger.warning(f"Passport extraction failed: {e}")
+        return None
+
+
+def extract_occupation(text: str) -> Optional[str]:
+    """Extract occupation/profession from text."""
+    try:
+        patterns = [
+            r'(?:occupation|profession|job|designation)[:\s\-]+([A-Z][a-zA-Z\s]+?)(?:\s+(?:Phone|Email|Address|Age|Gender|$))',
+            r'(?:occupation|profession|job|designation)[:\s\-]+([^\n:]{2,50})',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                occupation = match.group(1).strip()
+                # Clean up trailing fields
+                occupation = re.sub(r'\s+(Phone|Email|Address|Age|Gender).*$', '', occupation, flags=re.IGNORECASE)
+                if len(occupation) > 2:
+                    logger.info(f"[OCCUPATION] Extracted: {occupation}")
+                    return normalize_text(occupation)
+        
+        return None
+    except Exception as e:
+        logger.warning(f"Occupation extraction failed: {e}")
+        return None
+
+
 def extract_address(text: str) -> Optional[str]:
     """Extract address (multi-line) from text with improved patterns. Handles Address Line1 and Line2."""
     try:
         logger.info(f"[ADDRESS] Extracting from text: {text[:300]}")
         
         # First, try to extract Address Line1 and Line2 separately
-        # Handle OCR errors like "Adebress Linet" instead of "Address Line1"
-        address_line1_match = re.search(r'(?:address\s+line\s*1|address\s+linet|adebress\s+linet)[:\s]+([^\n:]+?)(?:\s+Address\s+Line\s*2|City|State|Country|$)', text, re.IGNORECASE)
-        address_line2_match = re.search(r'(?:address\s+line\s*2)[:\s]+([^\n:]+?)(?:\s+City|State|Country|Pin|Phone|Email|$)', text, re.IGNORECASE)
+        # Handle OCR errors like "Adebress Linet", "Aderess Linet", "Address Linet" instead of "Address Line1"
+        address_line1_patterns = [
+            r'(?:address\s+line\s*1|address\s+linet|adebress\s+linet|aderess\s+linet|address\s+linet1)[:\s]+([^\n:]+?)(?:\s+Address\s+Line\s*2|City|State|Country|Pin|Phone|Email|$)',
+            r'(?:address\s+line\s*1|address\s+linet)[:\s]+([^\n:]+?)(?:\n|Address\s+Line\s*2|City|State|Country|Pin|Phone|Email|$)',
+        ]
+        address_line1_match = None
+        for pattern in address_line1_patterns:
+            address_line1_match = re.search(pattern, text, re.IGNORECASE)
+            if address_line1_match:
+                break
+        
+        address_line2_patterns = [
+            r'(?:address\s+line\s*2|address\s+linet2)[:\s]+([^\n:]+?)(?:\s+City|State|Country|Pin|Phone|Email|$)',
+            r'(?:address\s+line\s*2)[:\s]+([^\n:]+?)(?:\n|City|State|Country|Pin|Phone|Email|$)',
+        ]
+        address_line2_match = None
+        for pattern in address_line2_patterns:
+            address_line2_match = re.search(pattern, text, re.IGNORECASE)
+            if address_line2_match:
+                break
         
         address_parts = []
         if address_line1_match:
@@ -471,34 +728,25 @@ def extract_all_fields(text: str, language: Optional[str] = None) -> Dict[str, O
     if not text:
         logger.warning("Empty text provided for field extraction")
         return {
-            "fields": {
-                "name": None,
-                "age": None,
-                "gender": None,
-                "phone": None,
-                "email": None,
-                "address": None,
-                "address_line1": None,
-                "address_line2": None,
-                "city": None,
-                "state": None,
-                "country": None
-            },
+            "fields": {},  # Empty dict - no fields extracted
             "confidence_scores": {},
             "language_detected": language or 'en'
         }
     
     try:
-        # Detect language if not provided
+        # Fast language detection - only if not provided, and use small sample
         if not language:
-            language = detect_language(text)
+            # Use only first 200 chars for fast detection
+            language = detect_language(text[:200] if len(text) > 200 else text, sample_size=200)
+            logger.debug(f"[DEBUG] Language detected: {language} (from sample)")
+        else:
+            logger.debug(f"[DEBUG] Using provided language: {language}")
         
         # Normalize text first
         normalized_text = normalize_text(text)
         logger.info(f"[DEBUG] Normalized text length: {len(normalized_text)}")
-        logger.info(f"[DEBUG] Language detected: {language}")
         
-        # Extract fields with multilingual patterns
+        # Extract standard fields with multilingual patterns
         fields = {
             "name": extract_name(normalized_text, language),
             "age": extract_age(normalized_text),
@@ -507,6 +755,19 @@ def extract_all_fields(text: str, language: Optional[str] = None) -> Dict[str, O
             "email": extract_email(normalized_text),
             "address": extract_address(normalized_text)
         }
+        
+        # Extract additional common fields
+        additional_fields = {
+            "date_of_birth": extract_date_of_birth(normalized_text),
+            "pin_code": extract_pin_code(normalized_text),
+            "aadhaar": extract_aadhaar(normalized_text),
+            "pan": extract_pan(normalized_text),
+            "passport": extract_passport(normalized_text),
+            "occupation": extract_occupation(normalized_text)
+        }
+        
+        # Merge additional fields into main fields dict
+        fields.update(additional_fields)
         
         # Parse address into components if available
         address = fields.get("address")
@@ -567,47 +828,34 @@ def extract_all_fields(text: str, language: Optional[str] = None) -> Dict[str, O
             fields["country"] = country.strip()
             logger.info(f"[COUNTRY] Extracted: {fields['country']}")
         
-        # Calculate confidence scores (simplified - can be enhanced)
+        # Filter out None/null fields - only keep extracted fields
+        extracted_fields = {k: v for k, v in fields.items() if v is not None}
+        
+        # Calculate confidence scores only for extracted fields
         confidence_scores = {}
-        for field_name, field_value in fields.items():
-            if field_value:
-                # Basic confidence: 0.8 if found, can be enhanced with actual OCR confidence
-                confidence_scores[field_name] = 0.8
-            else:
-                confidence_scores[field_name] = 0.0
+        for field_name, field_value in extracted_fields.items():
+            # Basic confidence: 0.8 if found, can be enhanced with actual OCR confidence
+            confidence_scores[field_name] = 0.8
         
         # Log extraction results
-        extracted = [k for k, v in fields.items() if v is not None]
+        extracted = list(extracted_fields.keys())
         logger.info(f"Extracted fields: {', '.join(extracted) if extracted else 'none'}")
         
         # Log what was extracted for debugging
-        for field_name, field_value in fields.items():
-            if field_value:
-                logger.info(f"[FIELD] {field_name}: {field_value}")
+        for field_name, field_value in extracted_fields.items():
+            logger.info(f"[FIELD] {field_name}: {field_value}")
         
         return {
-            "fields": fields,
+            "fields": extracted_fields,  # Only return fields that were actually extracted
             "confidence_scores": confidence_scores,
             "language_detected": language
         }
         
     except Exception as e:
         logger.error(f"Field extraction failed: {e}", exc_info=True)
-        # Return empty fields on error
+        # Return empty fields on error (no fields extracted)
         return {
-            "fields": {
-                "name": None,
-                "age": None,
-                "gender": None,
-                "phone": None,
-                "email": None,
-                "address": None,
-                "address_line1": None,
-                "address_line2": None,
-                "city": None,
-                "state": None,
-                "country": None
-            },
+            "fields": {},  # Empty dict - no fields extracted
             "confidence_scores": {},
             "language_detected": language or 'en'
         }

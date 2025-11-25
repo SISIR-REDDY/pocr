@@ -191,23 +191,16 @@ async def extract_fields(
                 # Old format - field_result is the fields dict directly
                 fields = field_result
                 field_confidences = {}
-            logger.info(f"[DEBUG] Extracted fields: {fields}")
-            log_field_extraction(logger, fields, {})
+            
+            # Filter out None/null values - only keep extracted fields
+            fields = {k: v for k, v in fields.items() if v is not None and v != ""}
+            
+            logger.info(f"[DEBUG] Extracted fields (after filtering): {fields}")
+            logger.info(f"[DEBUG] Number of fields extracted: {len(fields)}")
+            log_field_extraction(logger, fields, field_confidences)
         except Exception as e:
             log_error_with_traceback(logger, e, "Field extraction")
-            fields = {
-                "name": None,
-                "age": None,
-                "gender": None,
-                "phone": None,
-                "email": None,
-                "address": None,
-                "address_line1": None,
-                "address_line2": None,
-                "city": None,
-                "state": None,
-                "country": None
-            }
+            fields = {}  # Empty dict - no fields extracted
             field_confidences = {}
         
         # Create response
