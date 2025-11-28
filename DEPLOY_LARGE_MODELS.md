@@ -14,9 +14,12 @@ Models will be downloaded from Hugging Face Hub on first request, not included i
 
 ✅ **Already Done!** Code is updated to download models on-demand.
 
-### Step 2: Deploy Backend to Railway (Recommended)
+### Step 2: Deploy Backend (Choose One)
 
+#### Option A: Railway (Recommended - Easiest) ⭐
 Railway handles large downloads well and has persistent storage.
+
+**Free Tier:** 500 hours/month, 512MB RAM
 
 #### 2.1 Create Railway Account
 1. Go to https://railway.app
@@ -47,6 +50,78 @@ Railway handles large downloads well and has persistent storage.
 1. Go to **Settings** → **Networking**
 2. Click **"Generate Domain"**
 3. Copy your backend URL (e.g., `https://your-app.railway.app`)
+
+---
+
+#### Option B: Render (Good Alternative) ⭐
+
+**Free Tier:** 750 CPU-hours/month, 512MB RAM
+
+##### B.1 Create Render Account
+1. Go to https://render.com
+2. Sign up (free)
+3. Connect GitHub account
+
+##### B.2 Create Web Service
+1. Click **"New +"** → **"Web Service"**
+2. Connect your GitHub repository
+3. Select **"pocr"** repository
+
+##### B.3 Configure Service
+1. **Name**: `optical-recognition-backend` (or any name)
+2. **Root Directory**: `backend`
+3. **Environment**: `Python 3`
+4. **Build Command**: `pip install -r requirements.txt`
+5. **Start Command**: `python main.py`
+
+##### B.4 Deploy
+1. Click **"Create Web Service"**
+2. Wait 15-20 minutes (installing dependencies)
+3. Models download on first API request
+
+##### B.5 Get Backend URL
+1. Once deployed, you'll see your URL
+2. Copy it (e.g., `https://your-app.onrender.com`)
+
+**Note:** Render free tier sleeps after 15 min inactivity. First request after sleep takes 10-15 min.
+
+---
+
+#### Option C: Fly.io (For Large Storage) ⭐
+
+**Free Tier:** 3GB storage, 256MB RAM per VM
+
+##### C.1 Install Fly CLI
+```bash
+# Windows (PowerShell)
+iwr https://fly.io/install.ps1 | iex
+
+# Or download from: https://fly.io/docs/hands-on/install-flyctl/
+```
+
+##### C.2 Login
+```bash
+fly auth login
+```
+
+##### C.3 Deploy
+```bash
+cd backend
+fly launch
+# Follow prompts:
+# - App name: (choose a name)
+# - Region: (choose closest)
+# - PostgreSQL: No (unless needed)
+# - Redis: No (unless needed)
+```
+
+##### C.4 Get Backend URL
+```bash
+fly info
+# Shows your app URL
+```
+
+**Note:** 256MB RAM may not be enough. Consider Railway or Render instead.
 
 ---
 
