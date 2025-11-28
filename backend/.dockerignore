@@ -1,10 +1,23 @@
 # Ignore models in Docker build (they'll be downloaded on first run)
 models/
+models/**
 *.bin
 *.safetensors
 *.onnx
 *.pt
 *.pth
+*.pkl
+*.h5
+*.ckpt
+
+# Keep model configs but not the actual model files
+!models/*/config.json
+!models/*/tokenizer_config.json
+!models/*/preprocessor_config.json
+!models/*/generation_config.json
+!models/*/special_tokens_map.json
+!models/*/vocab.json
+!models/*/merges.txt
 
 # Python
 __pycache__/
@@ -15,6 +28,7 @@ __pycache__/
 venv/
 env/
 ENV/
+.venv/
 
 # Logs
 logs/
@@ -29,4 +43,13 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Large files
+*.zip
+*.tar
+*.tar.gz
+*.rar
+
+# Sample inputs (not needed in production)
+sample_inputs/
 
