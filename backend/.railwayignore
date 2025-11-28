@@ -1,0 +1,10 @@
+# Ignore models in Railway deployment (download on first run)
+models/
+*.bin
+*.safetensors
+
+# Keep model configs but not the actual model files
+!models/*/config.json
+!models/*/tokenizer_config.json
+!models/*/preprocessor_config.json
+

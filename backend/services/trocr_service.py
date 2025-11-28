@@ -81,11 +81,23 @@ def load_trocr_model(model_type: str = "handwritten") -> Optional[tuple]:
     
     model_path_str = str(model_path.resolve())
     
-    # Check if model exists
+    # Check if model exists, download if not
     if not check_model_exists(model_path):
-        logger.error(f"Model not found at {model_path_str}")
-        logger.error("Please run download_models.py to download models")
-        return None
+        logger.warning(f"Model not found at {model_path_str}")
+        logger.info("Attempting to download model from Hugging Face Hub...")
+        
+        # Try to download model on-demand
+        try:
+            from services.model_downloader import ensure_model_available
+            
+            model_key = "trocr-handwritten" if model_type == "handwritten" else "trocr-printed"
+            if not ensure_model_available(model_key):
+                logger.error("Failed to download model. Please check internet connection.")
+                return None
+        except Exception as e:
+            logger.error(f"Failed to download model: {e}")
+            logger.error("Please run download_models.py to download models manually")
+            return None
     
     try:
         logger.info(f"Loading TrOCR model from: {model_path_str}")

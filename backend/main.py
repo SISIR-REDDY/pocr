@@ -55,16 +55,32 @@ async def lifespan(app: FastAPI):
         logger.error("[FAIL] No PaddleOCR models initialized")
         logger.warning("Server will start but OCR may fail")
     
-    # Initialize TrOCR models
+    # Initialize TrOCR models (with on-demand download)
     logger.info("Initializing TrOCR models...")
     try:
+        # Ensure models are available (download if needed)
+        try:
+            from services.model_downloader import ensure_all_models_available
+            logger.info("Checking model availability...")
+            model_status = ensure_all_models_available()
+            for model_key, available in model_status.items():
+                if available:
+                    logger.info(f"[OK] {model_key} is available")
+                else:
+                    logger.warning(f"[WARN] {model_key} download failed")
+        except Exception as e:
+            logger.warning(f"[WARN] Model download check failed: {e}")
+            logger.info("Continuing with local models if available...")
+        
         trocr_initialized = initialize_trocr_models()
         if trocr_initialized:
             logger.info("[OK] TrOCR models initialized successfully")
         else:
             logger.warning("[WARN] TrOCR models initialization failed or partial")
+            logger.info("[INFO] Models will be downloaded on first request if needed")
     except Exception as e:
         logger.warning(f"[WARN] TrOCR initialization error: {e}")
+        logger.info("[INFO] Models will be downloaded on first request if needed")
     
     logger.info("=" * 60)
     
