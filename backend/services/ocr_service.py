@@ -167,7 +167,7 @@ def extract_text_from_image(
         
         # Step 2: Aggressive image optimization for maximum speed
         # Smaller images = exponentially faster OCR (quadratic complexity)
-        max_dimension = 1000  # Ultra-aggressive resize for speed (was 1200)
+        max_dimension = 1200  # Balanced: good speed while maintaining accuracy
         width, height = image.size
         original_size = (width, height)
         

@@ -93,8 +93,59 @@ def load_trocr_model(model_type: str = "handwritten") -> Optional[tuple]:
         logger.info(f"Using device: {device}")
         
         # Load model components
-        processor = AutoProcessor.from_pretrained(model_path_str)
-        tokenizer = AutoTokenizer.from_pretrained(model_path_str)
+        # For TrOCR, we need to load image processor and tokenizer separately
+        # AutoProcessor might return just tokenizer, so we load components explicitly
+        from transformers import ViTImageProcessor
+        
+        try:
+            # Try to load as VisionEncoderDecoderProcessor first
+            processor = AutoProcessor.from_pretrained(model_path_str)
+            logger.info(f"Loaded processor type: {type(processor)}")
+            
+            # Check if it has image_processor attribute
+            if hasattr(processor, 'image_processor'):
+                tokenizer = processor.tokenizer if hasattr(processor, 'tokenizer') else AutoTokenizer.from_pretrained(model_path_str)
+                logger.info("Processor has image_processor attribute - using directly")
+            else:
+                # AutoProcessor returned just tokenizer, load image processor separately
+                logger.warning("AutoProcessor returned tokenizer only, loading image processor separately")
+                image_processor = ViTImageProcessor.from_pretrained(model_path_str)
+                tokenizer = processor  # Use the tokenizer from AutoProcessor
+                
+                # Create wrapper to combine both
+                class ProcessorWrapper:
+                    def __init__(self, image_processor, tokenizer):
+                        self.image_processor = image_processor
+                        self.tokenizer = tokenizer
+                        self.pad_token_id = tokenizer.pad_token_id if hasattr(tokenizer, 'pad_token_id') else None
+                        self.eos_token_id = tokenizer.eos_token_id if hasattr(tokenizer, 'eos_token_id') else None
+                        self.bos_token_id = tokenizer.bos_token_id if hasattr(tokenizer, 'bos_token_id') else None
+                    
+                    def batch_decode(self, *args, **kwargs):
+                        return self.tokenizer.batch_decode(*args, **kwargs)
+                
+                processor = ProcessorWrapper(image_processor, tokenizer)
+                logger.info("Created ProcessorWrapper with separate image_processor and tokenizer")
+        except Exception as e:
+            logger.error(f"Failed to load processor: {e}, loading components separately")
+            # Fallback: load everything separately
+            image_processor = ViTImageProcessor.from_pretrained(model_path_str)
+            tokenizer = AutoTokenizer.from_pretrained(model_path_str)
+            
+            class ProcessorWrapper:
+                def __init__(self, image_processor, tokenizer):
+                    self.image_processor = image_processor
+                    self.tokenizer = tokenizer
+                    self.pad_token_id = tokenizer.pad_token_id if hasattr(tokenizer, 'pad_token_id') else None
+                    self.eos_token_id = tokenizer.eos_token_id if hasattr(tokenizer, 'eos_token_id') else None
+                    self.bos_token_id = tokenizer.bos_token_id if hasattr(tokenizer, 'bos_token_id') else None
+                
+                def batch_decode(self, *args, **kwargs):
+                    return self.tokenizer.batch_decode(*args, **kwargs)
+            
+            processor = ProcessorWrapper(image_processor, tokenizer)
+            logger.info("Loaded all components separately and created ProcessorWrapper")
+        
         model = VisionEncoderDecoderModel.from_pretrained(model_path_str)
         model.to(device)
         model.eval()
@@ -203,11 +254,28 @@ def extract_text_from_image(
         # Process image with TrOCR processor
         # The processor handles normalization and tensor conversion
         logger.info(f"[DEBUG] Processing image: size={image.size}, mode={image.mode}")
+        logger.info(f"[DEBUG] Processor type: {type(processor)}")
         try:
-            pixel_values = processor(images=image, return_tensors="pt").pixel_values.to(device)
+            # TrOCR VisionEncoderDecoderProcessor needs images parameter only for inference
+            # Check if processor has image_processor attribute
+            if hasattr(processor, 'image_processor'):
+                # Use the image processor directly
+                pixel_values = processor.image_processor(image, return_tensors="pt").pixel_values.to(device)
+                logger.info(f"[DEBUG] Used image_processor attribute")
+            else:
+                # Try calling processor with images only (no text parameter)
+                processed = processor(images=image, return_tensors="pt")
+                if isinstance(processed, dict):
+                    pixel_values = processed.get('pixel_values', processed.get('input_ids')).to(device)
+                elif hasattr(processed, 'pixel_values'):
+                    pixel_values = processed.pixel_values.to(device)
+                else:
+                    pixel_values = processed.to(device)
+            
             logger.info(f"[DEBUG] Pixel values shape: {pixel_values.shape}")
         except Exception as e:
             logger.error(f"[ERROR] Image processing failed: {e}", exc_info=True)
+            logger.error(f"[ERROR] Processor attributes: {dir(processor)}")
             return {
                 "raw_text": "",
                 "avg_confidence": 0.0,
@@ -380,11 +448,28 @@ def _extract_text_trocr_legacy(
         # Process image with TrOCR processor
         # The processor handles normalization and tensor conversion
         logger.info(f"[DEBUG] Processing image: size={image.size}, mode={image.mode}")
+        logger.info(f"[DEBUG] Processor type: {type(processor)}")
         try:
-            pixel_values = processor(images=image, return_tensors="pt").pixel_values.to(device)
+            # TrOCR VisionEncoderDecoderProcessor needs images parameter only for inference
+            # Check if processor has image_processor attribute
+            if hasattr(processor, 'image_processor'):
+                # Use the image processor directly
+                pixel_values = processor.image_processor(image, return_tensors="pt").pixel_values.to(device)
+                logger.info(f"[DEBUG] Used image_processor attribute")
+            else:
+                # Try calling processor with images only (no text parameter)
+                processed = processor(images=image, return_tensors="pt")
+                if isinstance(processed, dict):
+                    pixel_values = processed.get('pixel_values', processed.get('input_ids')).to(device)
+                elif hasattr(processed, 'pixel_values'):
+                    pixel_values = processed.pixel_values.to(device)
+                else:
+                    pixel_values = processed.to(device)
+            
             logger.info(f"[DEBUG] Pixel values shape: {pixel_values.shape}")
         except Exception as e:
             logger.error(f"[ERROR] Image processing failed: {e}", exc_info=True)
+            logger.error(f"[ERROR] Processor attributes: {dir(processor)}")
             return {
                 "raw_text": "",
                 "avg_confidence": 0.0,

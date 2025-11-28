@@ -136,9 +136,12 @@ async def extract_fields(
                         {"file_type": "image", "error": str(e)}
                     )
                 
-                # Extract text using PaddleOCR (preprocessing is handled inside OCR service)
+                # Use PaddleOCR for all documents (handwritten and printed)
+                # PaddleOCR handles multi-line text much better than TrOCR
+                # TrOCR is single-line only and misses most content in forms
                 logger.info(f"[DEBUG] Original image size: {image.size}, mode: {image.mode}")
-                logger.info("[DEBUG] Calling PaddleOCR multilingual OCR")
+                logger.info("[DEBUG] Using PaddleOCR multilingual OCR (best for multi-line documents)")
+                
                 # Pass original image - preprocessing will be done inside OCR service
                 ocr_result = extract_text_from_image(image)
                 raw_text = ocr_result.get("raw_text", "")
@@ -146,13 +149,19 @@ async def extract_fields(
                 language_detected = ocr_result.get("language_detected", "en")
                 ocr_error = ocr_result.get("error")
                 
-                # DEBUG: Print raw OCR text
+                # DEBUG: Print raw OCR text with detailed analysis
                 logger.info("=" * 60)
                 logger.info("=== OCR RAW TEXT START ===")
                 logger.info(f"Raw OCR Text: {repr(raw_text)}")
                 logger.info(f"Text Length: {len(raw_text)}")
                 logger.info(f"Language Detected: {language_detected}")
-                logger.info(f"Text Preview: {raw_text[:200] if raw_text else '(empty)'}")
+                logger.info(f"OCR Confidence: {ocr_confidence:.2f}")
+                logger.info(f"Line Count: {ocr_result.get('line_count', 0)}")
+                logger.info(f"Text Preview (first 500 chars): {raw_text[:500] if raw_text else '(empty)'}")
+                if raw_text:
+                    lines = raw_text.split('\n')
+                    logger.info(f"Number of lines: {len(lines)}")
+                    logger.info(f"First 10 lines: {lines[:10]}")
                 logger.info("=== OCR RAW TEXT END ===")
                 logger.info("=" * 60)
                 
@@ -173,16 +182,18 @@ async def extract_fields(
                 except Exception:
                     pass
         
-        # Normalize raw text
-        logger.info(f"[DEBUG] Raw text before normalization: {repr(raw_text[:100])}")
-        if raw_text:
-            raw_text = normalize_text(raw_text)
-            logger.info(f"[DEBUG] Raw text after normalization: {repr(raw_text[:100])}")
+        # Store original raw text for field extraction (extract_all_fields handles normalization internally)
+        original_raw_text = raw_text
+        
+        # Log raw text for debugging
+        logger.info(f"[DEBUG] Raw OCR text (original, length: {len(raw_text)}): {repr(raw_text[:200])}")
+        logger.info(f"[DEBUG] Number of lines in raw text: {len(raw_text.split(chr(10))) if raw_text else 0}")
         
         # Extract fields with multilingual support
+        # Pass original text - extract_all_fields will handle normalization internally
         logger.info(f"[DEBUG] Extracting fields from text (length: {len(raw_text)}, language: {language_detected})")
         try:
-            field_result = extract_all_fields(raw_text, language=language_detected)
+            field_result = extract_all_fields(original_raw_text, language=language_detected)
             # Handle both old format (dict) and new format (dict with "fields" key)
             if isinstance(field_result, dict) and "fields" in field_result:
                 fields = field_result.get("fields", {})
@@ -231,11 +242,14 @@ async def extract_fields(
             avg_field_confidence = sum(field_confidences.values()) / len(field_confidences) if field_confidences else 0.0
             overall_confidence = (ocr_confidence + avg_field_confidence) / 2.0
         
+        # Normalize raw text for response (for display purposes)
+        normalized_raw_text = normalize_text(original_raw_text) if original_raw_text else ""
+        
         response = {
             "success": True,
             "fields": fields,
             "confidence": overall_confidence,
-            "raw_text": raw_text,
+            "raw_text": normalized_raw_text,  # Return normalized text for display
             "language_detected": language_detected,
             "field_confidences": field_confidences,
             "debug": debug_info or {}

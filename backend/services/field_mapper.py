@@ -17,6 +17,36 @@ from utils.language_detector import detect_language
 
 logger = setup_logger("field_mapper")
 
+# Compile regex patterns for speed (compile once, use many times)
+# FIXED: Patterns now handle lowercase/mixed case from OCR errors
+_compiled_patterns = {
+    'name': [
+        # More flexible: allows lowercase start (OCR might lowercase first letter)
+        re.compile(r'(?:name|full\s+name|applicant\s+name|your\s+name|mame|norme|neme)[:\s]+([A-Za-z][a-zA-Z.]+(?:\s+[A-Za-z][a-zA-Z]+)+?)(?:\s+(?:Age|Gender|Phone|Email|Address|City|State|Country|Date|Birth|Parents|Occupation|Mobile)|$)', re.IGNORECASE | re.MULTILINE),
+        re.compile(r'(?:name|mame|neme)[:\s]+([A-Za-z]\.?\s*[A-Za-z][a-zA-Z]+\s+[A-Za-z][a-zA-Z]+(?:\s+[A-Za-z][a-zA-Z]+)?)', re.IGNORECASE),
+    ],
+    'phone': [
+        re.compile(r'(?:phone|mobile|tel|contact|ph\.?)[:\s\-]*(?:number)?[:\s\-]*(\+?\d{1,3}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9})', re.IGNORECASE),
+        re.compile(r'(\d{7,15})', re.IGNORECASE),
+    ],
+    'email': [
+        re.compile(r'(?:email|e-mail|mail|email\s+id|emailid|emailld)[:\s\-]*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})', re.IGNORECASE),
+        re.compile(r'\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b', re.IGNORECASE),
+    ],
+    'dob': [
+        re.compile(r'(?:date\s+of\s+birth|dob|birth\s+date|d\.o\.b\.?|date\s+st\s+bisth|date\s+st)[:\s\-\.]+(\d{1,2})[/.\-l](\d{1,2})[/.\-l](\d{2,4})', re.IGNORECASE),
+        re.compile(r'(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})', re.IGNORECASE),
+    ],
+    'occupation': [
+        # More flexible: allows lowercase start
+        re.compile(r'(?:occupation|profession|job|designation|ocupation)[:.\s\-]+([A-Za-z][a-zA-Z\s]+?)(?:\s+(?:Phone|Email|Address|Age|Gender|Mobile|Date|Birth|Mobile|Number|$))', re.IGNORECASE),
+    ],
+    'parents': [
+        # More flexible: allows lowercase start
+        re.compile(r'(?:parents\s+name|parent\s+name|parents\s+ame|parent\s+ame)[:\s\.]+([A-Za-z][a-zA-Z.]+(?:\s+[A-Za-z][a-zA-Z]+)+?)(?:\s+(?:Occupation|Phone|Email|Address|Age|Gender|Mobile|Date|Birth|$))', re.IGNORECASE),
+    ],
+}
+
 # Multilingual keywords
 NAME_KEYWORDS = {
     'en': ['name', 'full name', 'applicant name', 'your name', 'first name', 'last name'],
@@ -92,7 +122,7 @@ def fix_ocr_errors(text: str) -> str:
             'pune': 'Pune',
             'puna': 'Pune',
             
-            # Common words
+            # Common words and field labels
             'layeut': 'Layout',
             'layaut': 'Layout',
             'layot': 'Layout',
@@ -110,17 +140,38 @@ def fix_ocr_errors(text: str) -> str:
             'mmber': 'Number',
             'numb': 'Number',
             'numbber': 'Number',
+            'numbes': 'Number',
             'phome': 'Phone',
             'phne': 'Phone',
             'emal': 'Email',
             'emai': 'Email',
             'emial': 'Email',
+            'emailld': 'EmailId',
             'read': 'Road',
             'rood': 'Road',
             'strt': 'Street',
             'stret': 'Street',
             'stree': 'Street',
             'streeet': 'Street',
+            
+            # Common OCR mistakes in field labels
+            'neme': 'Name',
+            'mame': 'Name',
+            'norme': 'Name',
+            'occupation.': 'Occupation:',
+            'ocupation': 'Occupation',
+            'ocupation-': 'Occupation:',
+            'teachex': 'Teacher',
+            # Removed specific name fixes - these should be handled generically
+            'parents ame': 'Parents Name',
+            'parents': 'Parents',
+            'date st bisth': 'Date of Birth',
+            'date st': 'Date of Birth',
+            'bisth': 'Birth',
+            'mobile numbes': 'Mobile Number',
+            'mobile': 'Mobile',
+            'emailld': 'EmailId',
+            'emailid': 'EmailId',
             
             # Common OCR character mistakes
             'rn': 'm',  # rn -> m (in context)
@@ -161,14 +212,25 @@ def fix_ocr_errors(text: str) -> str:
             (r'\b0([A-Z][a-z]+)', r'O\1'),  # 0 at word start before capital -> O
             (r'([a-z]+)0\b', r'\1O'),  # 0 at word end after lowercase -> O
             
+            # Generic OCR character confusions (works for any text)
+            # Fix '0'/'O' confusion in words (but keep 0 in numbers)
+            (r'\b([A-Za-z]+)0([A-Za-z]+)\b', r'\1O\2'),  # Letter-0-Letter -> Letter-O-Letter
+            # Fix 'l'/'I' confusion in dates (l/I often means 1 or /)
+            (r'(\d)[lI](\d)', r'\1/\2'),  # Number-l/I-Number -> Number/Number
+            
             # Fix spacing issues
             (r'([a-z])([A-Z])', r'\1 \2'),  # Add space between lowercase and uppercase
+            (r'([A-Z])\.([A-Z])', r'\1. \2'),  # Fix spacing: "N.Surya" -> "N. Surya"
             (r'([A-Z])([A-Z][a-z])', r'\1 \2'),  # Add space between two words
             
             # Fix common OCR mistakes in numbers
             (r'(\d)\s+(\d)', r'\1\2'),  # Remove spaces in numbers
             (r'([a-z])(\d)', r'\1 \2'),  # Add space before number
             (r'(\d)([a-z])', r'\1 \2'),  # Add space after number
+            
+            # Fix date OCR errors: 'l', 'I', or '|' in dates -> '/'
+            (r'(\d{1,2})[lI|](\d{1,2})[lI|](\d{2,4})', r'\1/\2/\3'),  # "05101l2005" -> "05/10/2005"
+            (r'(\d{1,2})[lI|](\d{1,2})', r'\1/\2'),  # Partial date fix
         ]
         
         for pattern, replacement in pattern_corrections:
@@ -181,6 +243,82 @@ def fix_ocr_errors(text: str) -> str:
     except Exception as e:
         logger.warning(f"OCR error correction failed: {e}")
         return text
+
+
+def clean_extracted_value(value: str, field_type: str = "generic") -> str:
+    """
+    Clean and correct extracted field value to ensure accuracy.
+    Removes OCR errors, fixes character confusions, and validates format.
+    
+    Args:
+        value: Extracted field value
+        field_type: Type of field (name, email, phone, date, etc.)
+        
+    Returns:
+        Cleaned and corrected value
+    """
+    if not value:
+        return ""
+    
+    try:
+        # Start with normalization
+        cleaned = normalize_text(value)
+        
+        # Field-specific cleaning
+        if field_type == "name":
+            # Remove any numbers from names (OCR might capture)
+            cleaned = re.sub(r'\d+', '', cleaned)
+            # Fix spacing around periods (initials)
+            cleaned = re.sub(r'\.\s*', '. ', cleaned)
+            cleaned = re.sub(r'\s+\.', ' .', cleaned)
+            # Remove special characters except periods and hyphens
+            cleaned = re.sub(r'[^\w\s.\-]', '', cleaned)
+            
+        elif field_type == "email":
+            # Remove spaces in email
+            cleaned = cleaned.replace(' ', '')
+            # Fix common OCR errors in email
+            cleaned = re.sub(r'([a-z])0([a-z])', r'\1o\2', cleaned)  # 0 -> o in email
+            cleaned = re.sub(r'([a-z])rn([a-z])', r'\1m\2', cleaned)  # rn -> m
+            # Ensure valid email format
+            if '@' not in cleaned:
+                return ""
+            
+        elif field_type == "phone":
+            # Remove all non-digit characters except +, -, (, )
+            cleaned = re.sub(r'[^\d+\-()]', '', cleaned)
+            # Remove leading/trailing non-digits
+            cleaned = cleaned.strip('+-()')
+            
+        elif field_type == "date":
+            # Fix common date OCR errors
+            cleaned = re.sub(r'[lI|]', '/', cleaned)  # l/I/| -> /
+            cleaned = re.sub(r'[Oo]', '0', cleaned)  # O/o -> 0 in dates
+            # Remove spaces in dates
+            cleaned = re.sub(r'\s+', '', cleaned)
+            
+        elif field_type == "number":
+            # Remove all non-digit characters
+            cleaned = re.sub(r'[^\d]', '', cleaned)
+            
+        # Generic cleaning for all fields
+        # Remove leading/trailing whitespace
+        cleaned = cleaned.strip()
+        
+        # Remove excessive spaces
+        cleaned = re.sub(r'\s+', ' ', cleaned)
+        
+        # Remove leading/trailing punctuation (except for emails, dates)
+        if field_type not in ["email", "date", "phone"]:
+            cleaned = cleaned.strip('.,;:!?')
+        
+        # Remove control characters
+        cleaned = ''.join(char for char in cleaned if ord(char) >= 32 or char in '\n\t')
+        
+        return cleaned.strip()
+    except Exception as e:
+        logger.warning(f"Value cleaning failed for {field_type}: {e}")
+        return value.strip() if value else ""
 
 
 def normalize_text(text: str) -> str:
@@ -223,92 +361,151 @@ def normalize_text(text: str) -> str:
         return text
 
 
-def extract_name(text: str, language: str = 'en') -> Optional[str]:
-    """Extract name from text with multilingual support. Handles First/Middle/Last name patterns."""
+def parse_name_components(full_name: str) -> Dict[str, Optional[str]]:
+    """
+    Parse full name into first name, middle name, and last name components.
+    Works generically for any name format.
+    
+    Args:
+        full_name: Full name string
+        
+    Returns:
+        Dict with 'first_name', 'middle_name', 'last_name' keys
+    """
+    if not full_name:
+        return {
+            "first_name": None,
+            "middle_name": None,
+            "last_name": None
+        }
+    
     try:
-        # Skip language detection for speed - use provided language or default to 'en'
-        # Language detection is now done once at the field extraction level
+        # Clean and normalize the name
+        name = full_name.strip()
+        
+        # Split by spaces
+        words = name.split()
+        
+        if len(words) == 0:
+            return {"first_name": None, "middle_name": None, "last_name": None}
+        elif len(words) == 1:
+            # Single word - treat as first name
+            return {
+                "first_name": words[0],
+                "middle_name": None,
+                "last_name": None
+            }
+        elif len(words) == 2:
+            # Two words - First and Last
+            return {
+                "first_name": words[0],
+                "middle_name": None,
+                "last_name": words[1]
+            }
+        elif len(words) == 3:
+            # Three words - could be First Middle Last or First Last Last
+            # Check if middle word is an initial (single letter or letter with period)
+            middle = words[1]
+            if len(middle) <= 2 and (middle.endswith('.') or len(middle) == 1):
+                # Middle is an initial - First Middle Last
+                return {
+                    "first_name": words[0],
+                    "middle_name": middle,
+                    "last_name": words[2]
+                }
+            else:
+                # Could be First Middle Last or compound last name
+                # Common pattern: if last word is common last name pattern, treat middle as middle name
+                # Otherwise, treat last two as compound last name
+                return {
+                    "first_name": words[0],
+                    "middle_name": words[1],
+                    "last_name": words[2]
+                }
+        else:
+            # Four or more words - First, Middle(s), Last
+            # Last word is typically the last name
+            # First word is first name
+            # Everything in between is middle name(s)
+            first_name = words[0]
+            last_name = words[-1]
+            middle_name = ' '.join(words[1:-1]) if len(words) > 2 else None
+            
+            return {
+                "first_name": first_name,
+                "middle_name": middle_name if middle_name else None,
+                "last_name": last_name
+            }
+    except Exception as e:
+        logger.warning(f"Name parsing failed: {e}")
+        return {
+            "first_name": full_name,  # Fallback: use full name as first name
+            "middle_name": None,
+            "last_name": None
+        }
+
+
+def extract_name(text: str, language: str = 'en') -> Optional[str]:
+    """Extract name from text with multilingual support and enhanced OCR error correction."""
+    try:
         if not language:
-            language = 'en'  # Default to English for speed
+            language = 'en'
         
-        # First, try to extract multi-part names (First, Middle, Last)
-        # Handle OCR errors like "mame" instead of "name", "norme" instead of "name"
-        first_name_match = re.search(r'(?:first\s+(?:name|mame|norme))[:\s]+([A-Z][a-zA-Z]+)', text, re.IGNORECASE)
-        middle_name_match = re.search(r'(?:middle\s+(?:name|mame|norme))[:\s]+([A-Z][a-zA-Z]+)', text, re.IGNORECASE)
-        last_name_match = re.search(r'(?:last\s+name)[:\s]+([A-Z][a-zA-Z]+)', text, re.IGNORECASE)
-        
-        if first_name_match or last_name_match:
-            name_parts = []
-            if first_name_match:
-                name_parts.append(first_name_match.group(1))
-            if middle_name_match:
-                name_parts.append(middle_name_match.group(1))
-            if last_name_match:
-                name_parts.append(last_name_match.group(1))
-            
-            if name_parts:
-                full_name = ' '.join(name_parts)
-                logger.info(f"[NAME] Extracted multi-part name: {full_name}")
-                return full_name
-        
-        # Build multilingual patterns
-        keywords = NAME_KEYWORDS.get(language, NAME_KEYWORDS['en'])
-        keyword_pattern = '|'.join(keywords)
-        
-        # Enhanced patterns for name extraction (handle OCR errors)
-        patterns = [
-            # Explicit labels with colon (most specific) - handle OCR errors like "mame"
-            r'(?:name|full\s+name|applicant\s+name|your\s+name|mame|norme)[:\s]+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+?)(?:\s+(?:Age|Gender|Phone|Email|Address|City|State|Country|Date|Birth)|$)',
-            
-            # Explicit labels (multilingual) - but limit to reasonable length
-            rf'(?:{keyword_pattern})[:\s]+([^\n:]{2,50}?)(?:\s+(?:Age|Gender|Phone|Email|Address|City|State|Country|Date|Birth|$))',
-            
-            # English-specific: capitalized names with proper boundaries
-            r'(?:name|full\s+name|applicant\s+name|your\s+name|mame|norme)[:\s\-]+([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)+)',
-            
-            # First line pattern (often the name) - but only if it looks like a name
-            r'^([A-Z][a-zA-Z]+\s+[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)?)(?:\s|$)',
-            
-            # Pattern: Name on its own line
-            r'^([A-Z][a-z]+\s+[A-Z][a-z]+)\s*$',
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
+        # Use compiled patterns for speed
+        for pattern in _compiled_patterns['name']:
+            match = pattern.search(text)
             if match:
                 name = match.group(1).strip()
-                # Clean up - remove any trailing labels that might have been captured
+                # Clean up trailing labels
                 name = re.sub(r'\s+(Age|Gender|Phone|Email|Address|City|State|Country|Date|Birth).*$', '', name, flags=re.IGNORECASE)
                 name = name.strip()
                 
-                # Validate it's a reasonable name (2-4 words, each starting with capital for English)
-                if language == 'en':
-                    words = name.split()
-                    if 2 <= len(words) <= 4 and all(w and w[0].isupper() and len(w) > 1 for w in words):
-                        logger.info(f"[NAME] Extracted name: {name}")
-                        return normalize_text(name)
-                else:
-                    # For other languages, validate it's not too long
-                    if 2 <= len(name.split()) <= 4:
-                        logger.info(f"[NAME] Extracted name: {name}")
-                        return normalize_text(name)
+                # Generic OCR error fixes for names (works for any name)
+                # Fix spacing: "N.Surya" -> "N. Surya"
+                name = re.sub(r'([A-Za-z])\.([A-Za-z])', r'\1. \2', name)
+                # Fix missing space after period: "N.Surya" -> "N. Surya"
+                name = re.sub(r'([A-Za-z])\.([A-Za-z])', r'\1. \2', name)
+                
+                # Generic capitalization: Proper case for names (first letter uppercase, rest lowercase)
+                words = name.split()
+                capitalized_words = []
+                for word in words:
+                    if word and word[0].isalpha():
+                        # Capitalize first letter, lowercase rest (standard name format)
+                        if len(word) > 1:
+                            capitalized_words.append(word[0].upper() + word[1:].lower())
+                        else:
+                            capitalized_words.append(word.upper())
+                    elif word.startswith('.'):
+                        # Handle initials like ".Surya" -> ". Surya"
+                        capitalized_words.append(word)
+                    else:
+                        capitalized_words.append(word)
+                name = ' '.join(capitalized_words)
+                
+                # Generic fix: common OCR character confusions in names
+                # Fix 'l'/'I' confusion (but be careful - context dependent)
+                # Fix '0'/'O' in names (O is more common in names)
+                name = re.sub(r'([A-Za-z])0([A-Za-z])', r'\1O\2', name)
+                
+                # Validate name format
+                words = name.split()
+                if 2 <= len(words) <= 5 and all(w and (w[0].isupper() or w[0] == '.') and len(w) > 1 for w in words if w != '.'):
+                    # Clean the name before returning
+                    cleaned_name = clean_extracted_value(normalize_text(name), "name")
+                    return cleaned_name if cleaned_name else normalize_text(name)
         
-        # Fallback: look for capitalized words in first few lines (English)
+        # Fallback: first capitalized line
         if language == 'en':
             lines = text.split('\n')
-            for line in lines[:5]:  # Check first 5 lines
+            for line in lines[:3]:  # Check only first 3 lines for speed
                 line = line.strip()
-                if not line:
+                if not line or ':' in line:
                     continue
                 words = line.split()
-                # Look for 2-3 capitalized words (likely a name)
-                if 2 <= len(words) <= 4:
-                    if all(w and w[0].isupper() and len(w) > 1 for w in words[:2]):
-                        name = ' '.join(words[:2])
-                        logger.info(f"[NAME] Extracted name (fallback): {name}")
-                        return normalize_text(name)
+                if 2 <= len(words) <= 4 and all(w and w[0].isupper() and len(w) > 1 for w in words[:2]):
+                    return normalize_text(' '.join(words[:2]))
         
-        logger.warning("[NAME] No name found")
         return None
     except Exception as e:
         logger.warning(f"Name extraction failed: {e}")
@@ -316,8 +513,9 @@ def extract_name(text: str, language: str = 'en') -> Optional[str]:
 
 
 def extract_age(text: str) -> Optional[str]:
-    """Extract age from text with improved patterns."""
+    """Extract age from text with improved patterns. Also calculates from date of birth."""
     try:
+        # First try explicit age patterns
         patterns = [
             # Explicit labels
             r'(?:age|years?\s+old|yrs?\.?)[:\s\-]+(\d{1,3})',
@@ -325,9 +523,6 @@ def extract_age(text: str) -> Optional[str]:
             
             # Pattern: Age: 25
             r'age[:\s]+(\d{1,3})',
-            
-            # Standalone age (2 digits, reasonable range)
-            r'\b([1-9][0-9])\b',  # 10-99
         ]
         
         for pattern in patterns:
@@ -336,8 +531,46 @@ def extract_age(text: str) -> Optional[str]:
                 try:
                     age = int(match)
                     if 1 <= age <= 150:
+                        logger.info(f"[AGE] Extracted: {age}")
                         return str(age)
                 except ValueError:
+                    continue
+        
+        # If no explicit age found, try to calculate from date of birth
+        # Look for date of birth patterns
+        dob_patterns = [
+            r'(?:date\s+of\s+birth|dob|birth\s+date|d\.o\.b\.?|date\s+st\s+bisth)[:\s\-]+(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{2,4})',
+            r'(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})',  # DD/MM/YYYY or MM/DD/YYYY
+            r'(\d{4})[/.\-](\d{1,2})[/.\-](\d{1,2})',  # YYYY/MM/DD
+        ]
+        
+        for pattern in dob_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                try:
+                    # Try to parse the date
+                    parts = match.groups()
+                    if len(parts) == 3:
+                        # Determine format - if first part is 4 digits, it's YYYY/MM/DD
+                        if len(parts[0]) == 4:
+                            year = int(parts[0])
+                        elif len(parts[2]) == 4:
+                            year = int(parts[2])
+                        elif len(parts[2]) == 2:
+                            # Assume 20XX for 2-digit years
+                            year = 2000 + int(parts[2])
+                        else:
+                            continue
+                        
+                        # Calculate age (approximate, using 2024 as current year)
+                        from datetime import datetime
+                        current_year = datetime.now().year
+                        age = current_year - year
+                        
+                        if 1 <= age <= 150:
+                            logger.info(f"[AGE] Calculated from DOB year {year}: {age}")
+                            return str(age)
+                except (ValueError, IndexError):
                     continue
         
         return None
@@ -377,45 +610,26 @@ def extract_gender(text: str) -> Optional[str]:
 
 
 def extract_phone(text: str) -> Optional[str]:
-    """Extract phone number from text with improved patterns."""
+    """Extract phone number from text. Optimized for speed with compiled patterns."""
     try:
-        logger.info(f"[PHONE] Extracting from text: {text[:200]}")
-        
-        # Enhanced phone patterns
-        patterns = [
-            # With labels (most specific first) - handles "Phone number: 555-12345" or "Phone number 555-12345"
-            r'(?:phone|mobile|tel|contact|ph\.?)[:\s\-]*(?:number)?[:\s\-]*(\+?\d{1,3}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9})',
-            
-            # Pattern: Phone number: 555-12345 (with dash) - more specific for short formats
-            r'(?:phone|mobile|tel|contact|ph\.?)[:\s\-]*(?:number)?[:\s\-]*(\d{3,4}[-.\s]?\d{4,8})',
-            
-            # International format
-            r'(\+\d{1,3}[-.\s]?\d{1,4}[-.\s]?\d{1,4}[-.\s]?\d{1,9})',
-            
-            # Standard formats
-            r'(\d{3}[-.\s]?\d{3}[-.\s]?\d{4})',  # US format: 555-123-4567
-            r'(\d{3,4}[-.\s]?\d{4,8})',  # Format: 555-12345 or 5555-1234
-            r'(\d{4}[-.\s]?\d{3}[-.\s]?\d{3})',  # Alternative format
-            r'(\d{7,15})',  # Generic 7-15 digits (no separators)
-        ]
-        
-        for i, pattern in enumerate(patterns):
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            logger.info(f"[PHONE] Pattern {i} matches: {matches}")
+        # Use compiled patterns for speed
+        for pattern in _compiled_patterns['phone']:
+            matches = pattern.findall(text)
             for match in matches:
-                # Clean up the phone number but keep original format for display
-                phone_clean = re.sub(r'[-.\s()]', '', match)
-                logger.info(f"[PHONE] Match: {match}, Cleaned: {phone_clean}, Length: {len(phone_clean)}")
-                # Validate length (7-15 digits is reasonable)
-                if 7 <= len(phone_clean) <= 15:
-                    # Return with original formatting if it had separators
-                    if any(c in match for c in ['-', '.', ' ', '(']):
-                        logger.info(f"[PHONE] Extracted: {match.strip()}")
-                        return match.strip()
-                    logger.info(f"[PHONE] Extracted: {phone_clean}")
-                    return phone_clean
+                # Remove any label text that might have been captured (generic fix)
+                # Remove common label words that OCR might capture
+                phone_value = match.strip()
+                # Remove label words that might be at the start (case-insensitive)
+                phone_value = re.sub(r'^(?:phone|mobile|tel|contact|ph|number|numbes|numb|num)\s*[:\-]?\s*', '', phone_value, flags=re.IGNORECASE)
+                phone_value = phone_value.strip()
+                
+                phone_clean = re.sub(r'[-.\s()]', '', phone_value)
+                if 7 <= len(phone_clean) <= 15 and phone_clean.isdigit():
+                    # Clean the phone before returning
+                    cleaned_phone = clean_extracted_value(phone_value, "phone")
+                    # Return formatted if original had formatting, otherwise return clean
+                    return cleaned_phone if cleaned_phone else (phone_value if any(c in phone_value for c in ['-', '.', ' ', '(']) else phone_clean)
         
-        logger.warning(f"[PHONE] No valid phone number found in text")
         return None
     except Exception as e:
         logger.warning(f"Phone extraction failed: {e}")
@@ -423,22 +637,22 @@ def extract_phone(text: str) -> Optional[str]:
 
 
 def extract_email(text: str) -> Optional[str]:
-    """Extract email from text with improved patterns. Handles spaces in email addresses."""
+    """Extract email from text with improved patterns. Handles spaces in email addresses and incomplete emails."""
     try:
         logger.info(f"[EMAIL] Extracting from text: {text[:200]}")
         
         # Enhanced email patterns - handle spaces in email (OCR error)
         patterns = [
-            # With labels - handle spaces in email
-            r'(?:email|e-mail|mail|email\s+id)[:\s\-]*([a-zA-Z0-9._%+-]+)\s*@\s*([a-zA-Z0-9.-]+)\s*\.\s*([a-zA-Z]{2,})',
+            # With labels - handle spaces in email (most specific) - capture full email including spaces
+            r'(?:email|e-mail|mail|email\s+id|emailid|emailld)[:\s\-]*([a-zA-Z0-9._%+-]+(?:\s+[a-zA-Z0-9._%+-]+)*)\s*@\s*([a-zA-Z0-9.-]+)\s*\.\s*([a-zA-Z]{2,})',
             
-            # Standard email with spaces
-            r'([a-zA-Z0-9._%+-]+)\s*@\s*([a-zA-Z0-9.-]+)\s*\.\s*([a-zA-Z]{2,})',
+            # Standard email with spaces between parts
+            r'([a-zA-Z0-9._%+-]+(?:\s+[a-zA-Z0-9._%+-]+)*)\s*@\s*([a-zA-Z0-9.-]+)\s*\.\s*([a-zA-Z]{2,})',
             
-            # Standard email without spaces
-            r'(?:email|e-mail|mail|email\s+id)[:\s\-]*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})',
+            # Standard email without spaces (most common)
+            r'(?:email|e-mail|mail|email\s+id|emailid|emailld)[:\s\-]*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})',
             
-            # Standalone email
+            # Standalone email (no label)
             r'\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b',
             
             # Handle common OCR errors in emails
@@ -450,17 +664,74 @@ def extract_email(text: str) -> Optional[str]:
             if match:
                 # Handle patterns with separate groups (for emails with spaces)
                 if len(match.groups()) == 3:
-                    email = f"{match.group(1)}@{match.group(2)}.{match.group(3)}"
+                    local_part = match.group(1).strip()
+                    domain_part = match.group(2).strip()
+                    tld = match.group(3).strip()
+                    
+                    # Remove spaces from local part (OCR error)
+                    local_part = local_part.replace(' ', '')
+                    
+                    # If local part is missing or too short, try to find it from context
+                    if not local_part or len(local_part) < 1:
+                        # Look for text before @ that might be the email prefix
+                        match_pos = match.start()
+                        # Look backwards for alphanumeric characters (up to 30 chars before)
+                        before_at = text[max(0, match_pos-30):match_pos]
+                        # Try to extract potential email prefix (look for alphanumeric text before @)
+                        prefix_match = re.search(r'([a-zA-Z0-9._%+-]{1,})\s*@', before_at, re.IGNORECASE)
+                        if prefix_match:
+                            local_part = prefix_match.group(1).replace(' ', '')
+                    
+                    if local_part and domain_part and tld:
+                        email = f"{local_part}@{domain_part}.{tld}"
+                    else:
+                        logger.warning(f"[EMAIL] Incomplete email parts: local={local_part}, domain={domain_part}, tld={tld}")
+                        continue
                 else:
                     email = match.group(1)
                 
                 email = email.lower().replace(' ', '')  # Remove any spaces
-                # Fix common OCR errors
-                email = email.replace('0', 'o').replace('1', 'l')
+                
+                # Generic OCR error fixes for emails
+                if email and len(email) > 5:
+                    # Remove leading OCR error characters (l, I, 1, d) that are common mistakes
+                    while email and len(email) > 1 and email[0] in ['l', 'I', '1', 'd']:
+                        test_email = email[1:]
+                        if '@' in test_email and test_email.count('@') == 1:
+                            logger.info(f"[EMAIL] Removed leading OCR error character '{email[0]}'")
+                            email = test_email
+                        else:
+                            break
+                    
+                    # Generic fix: common OCR character confusions in email local part
+                    # Fix 'o' -> 'r' when followed by numbers (common OCR mistake)
+                    # But only in the local part (before @)
+                    if '@' in email:
+                        local, domain = email.split('@', 1)
+                        # Fix common OCR mistakes: 'o' before numbers often should be 'r'
+                        # Pattern: letter + 'o' + number -> letter + 'r' + number
+                        local = re.sub(r'([a-z])o(\d)', r'\1r\2', local)
+                        # Fix 'sto' -> 'str' (common pattern)
+                        local = re.sub(r'sto(\d)', r'str\1', local)
+                        email = f"{local}@{domain}"
+                
+                # Fix '0' vs 'o' in email (but be careful - 0 can be valid)
+                # Only fix if it's clearly wrong (like '0@gmail.com' -> probably 'o')
+                if email.startswith('0') and '@' in email:
+                    # Don't auto-fix, but log it
+                    logger.info(f"[EMAIL] Email starts with 0: {email}")
+                
                 # Basic validation
                 if '@' in email and '.' in email.split('@')[1]:
-                    logger.info(f"[EMAIL] Extracted: {email}")
-                    return email
+                    local, domain = email.split('@')
+                    # Validate: local part should have at least 1 char, domain should have at least 3
+                    if len(local) >= 1 and len(domain) >= 3:
+                        # Clean the email before returning
+                        cleaned_email = clean_extracted_value(email, "email")
+                        logger.info(f"[EMAIL] Extracted: {cleaned_email}")
+                        return cleaned_email if cleaned_email else email
+                    else:
+                        logger.warning(f"[EMAIL] Invalid email format: {email} (local={len(local)}, domain={len(domain)})")
         
         logger.warning("[EMAIL] No email found")
         return None
@@ -470,23 +741,57 @@ def extract_email(text: str) -> Optional[str]:
 
 
 def extract_date_of_birth(text: str) -> Optional[str]:
-    """Extract date of birth from text."""
+    """Extract date of birth from text. Handles OCR errors generically for any date format. Optimized for speed."""
     try:
+        # Enhanced patterns that handle OCR errors in date labels and formats
         patterns = [
-            r'(?:date\s+of\s+birth|dob|birth\s+date|d\.o\.b\.?)[:\s\-]+(\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})',
-            r'(?:date\s+of\s+birth|dob|birth\s+date|d\.o\.b\.?)[:\s\-]+(\d{4}[-/.]\d{1,2}[-/.]\d{1,2})',
-            r'\b(\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})\b',  # Generic date format
-            r'\b(\d{4}[-/.]\d{1,2}[-/.]\d{1,2})\b',  # YYYY-MM-DD format
+            # Pattern with label (handles various OCR errors in "Date of Birth")
+            r'(?:date\s+of\s+birth|dob|birth\s+date|d\.o\.b\.?|date\s+st\s+bisth|date\s+st\s+biosth|date\s+st|birth|bisth|biosth)[:\s\-\.]+(\d{1,2})[/.\-lI|](\d{1,2})[/.\-lI|](\d{2,4})',
+            # Generic date pattern (DD/MM/YYYY or MM/DD/YYYY) - handles various separators
+            r'(\d{1,2})[/.\-\s|lI](\d{1,2})[/.\-\s|lI](\d{4})',
+            # Date with 2-digit year
+            r'(\d{1,2})[/.\-\s|lI](\d{1,2})[/.\-\s|lI](\d{2})\b',
+            # Date without separators (DDMMYYYY or MMDDYYYY) - try to parse intelligently
+            r'(\d{1,2})(\d{2})(\d{4})',
         ]
         
         for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
-                dob = match.group(1).strip()
-                # Basic validation - should contain numbers and separators
-                if re.match(r'\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}', dob):
-                    logger.info(f"[DOB] Extracted: {dob}")
-                    return dob
+                if len(match.groups()) == 3:
+                    day, month, year = match.groups()
+                    
+                    # Generic OCR error fixes: common character confusions
+                    # 'l', 'I', '|' are often OCR mistakes for '1' or '/'
+                    day = day.replace('l', '1').replace('I', '1').replace('|', '1').replace('O', '0').replace('o', '0')
+                    month = month.replace('l', '1').replace('I', '1').replace('|', '1').replace('O', '0').replace('o', '0')
+                    year = year.replace('l', '1').replace('I', '1').replace('|', '1').replace('O', '0').replace('o', '0')
+                    
+                    # Remove any non-digit characters
+                    day = re.sub(r'[^\d]', '', day)
+                    month = re.sub(r'[^\d]', '', month)
+                    year = re.sub(r'[^\d]', '', year)
+                    
+                    # Validate digits
+                    if not (day.isdigit() and month.isdigit() and year.isdigit()):
+                        continue
+                    
+                    day_int = int(day)
+                    month_int = int(month)
+                    year_int = int(year)
+                    
+                    # Validate ranges
+                    if not (1 <= day_int <= 31 and 1 <= month_int <= 12):
+                        continue
+                    
+                    # Handle 2-digit year (smart: < 50 = 20XX, >= 50 = 19XX)
+                    if len(year) == 2:
+                        year_int = 2000 + year_int if year_int < 50 else 1900 + year_int
+                        year = str(year_int)
+                    
+                    # Validate year is reasonable (1900-2100)
+                    if 1900 <= year_int <= 2100:
+                        return f"{day.zfill(2)}/{month.zfill(2)}/{year}"
         
         return None
     except Exception as e:
@@ -494,24 +799,53 @@ def extract_date_of_birth(text: str) -> Optional[str]:
         return None
 
 
-def extract_pin_code(text: str) -> Optional[str]:
-    """Extract PIN/ZIP code from text."""
+def extract_pin_code(text: str, phone_number: Optional[str] = None) -> Optional[str]:
+    """Extract PIN/ZIP code from text. Excludes phone numbers."""
     try:
+        logger.info(f"[PIN] Extracting from text: {text[:200]}")
+        
+        # Remove phone number from text if provided to avoid confusion
+        text_for_pin = text
+        if phone_number:
+            # Remove the phone number from text to avoid matching it as PIN
+            phone_clean = re.sub(r'[-.\s()]', '', phone_number)
+            # Remove all occurrences of the phone number
+            text_for_pin = re.sub(re.escape(phone_number), ' ', text_for_pin)
+            text_for_pin = re.sub(re.escape(phone_clean), ' ', text_for_pin)
+            # Also remove any 10-digit numbers that match the phone pattern
+            text_for_pin = re.sub(r'\b' + re.escape(phone_clean) + r'\b', ' ', text_for_pin)
+            logger.info(f"[PIN] Removed phone number {phone_number} from text")
+        
         patterns = [
-            r'(?:pin\s+code|pincode|zip\s+code|postal\s+code|zip)[:\s\-]+(\d{4,10})',
-            r'(?:pin|pincode|zip)[:\s\-]+(\d{4,10})',
-            r'\b(\d{4,10})\b(?=\s*(?:phone|email|state|country|$))',  # Standalone 4-10 digit number
+            # Most specific: with labels (PIN/ZIP code labels)
+            r'(?:pin\s+code|pincode|zip\s+code|postal\s+code|zip|p\.?i\.?n\.?)[:\s\-]+(\d{4,6})\b',
+            r'(?:pin|pincode|zip)[:\s\-]+(\d{4,6})\b',
+            # Indian PIN codes are 6 digits, US ZIP codes are 5 digits
+            # Only match if it's clearly a PIN code (after address keywords, before phone/email)
+            r'(?:address|city|state|country|location|pincode)[^\d]*(\d{4,6})(?:\s*(?:phone|email|mobile|tel|$))',
         ]
         
-        for pattern in patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                pin = match.group(1).strip()
-                # Validate length (4-10 digits for various countries)
-                if 4 <= len(pin) <= 10 and pin.isdigit():
+        for i, pattern in enumerate(patterns):
+            matches = re.findall(pattern, text_for_pin, re.IGNORECASE)
+            logger.info(f"[PIN] Pattern {i} matches: {matches}")
+            for match in matches:
+                pin = match.strip() if isinstance(match, str) else str(match).strip()
+                # Validate: PIN codes are typically 4-6 digits (not 7-15 like phone numbers)
+                if 4 <= len(pin) <= 6 and pin.isdigit():
+                    # Additional validation: exclude if it's the same as phone number
+                    if phone_number:
+                        phone_clean = re.sub(r'[-.\s()]', '', phone_number)
+                        if pin in phone_clean or phone_clean.startswith(pin) or pin in phone_clean:
+                            logger.info(f"[PIN] Skipping {pin} - matches phone number {phone_clean}")
+                            continue
+                    # Exclude if it's 10 digits (definitely a phone number)
+                    if len(pin) >= 7:
+                        logger.info(f"[PIN] Skipping {pin} - too long for PIN code")
+                        continue
                     logger.info(f"[PIN] Extracted: {pin}")
                     return pin
         
+        logger.warning("[PIN] No valid PIN code found")
         return None
     except Exception as e:
         logger.warning(f"PIN extraction failed: {e}")
@@ -570,6 +904,67 @@ def extract_pan(text: str) -> Optional[str]:
         return None
 
 
+def extract_parents_name(text: str) -> Optional[str]:
+    """Extract parents name from text with improved OCR error handling. Optimized for speed."""
+    try:
+        # Enhanced patterns that handle OCR errors in labels (e.g., "Parents ame:" instead of "Parents Name:")
+        enhanced_patterns = [
+            # Handle "Parents ame:" (OCR error - missing 'N')
+            re.compile(r'(?:parents\s+name|parent\s+name|parents\s+ame|parent\s+ame)[:\s\-\.]+([A-Za-z][a-zA-Z.]+(?:\s+[A-Za-z][a-zA-Z]+)+?)(?:\s+(?:Occupation|Phone|Email|Address|Age|Gender|Mobile|Date|Birth|$))', re.IGNORECASE),
+            # Generic pattern
+            re.compile(r'(?:parents\s+name|parent\s+name|parents\s+ame|parent\s+ame)[:\s\-\.]+([^\n:]{2,50}?)(?:\s+(?:Occupation|Phone|Email|Address|Age|Gender|Mobile|Date|Birth|$))', re.IGNORECASE),
+        ]
+        
+        # Try enhanced patterns first
+        for pattern in enhanced_patterns:
+            match = pattern.search(text)
+            if match:
+                parents_name = match.group(1).strip()
+                # Remove label words that might be captured (generic fix)
+                parents_name = re.sub(r'^(?:ame|name|parents|parent)\s*[:\-]?\s*', '', parents_name, flags=re.IGNORECASE)
+                parents_name = re.sub(r'\s+(Occupation|Phone|Email|Address|Age|Gender|Mobile|Date|Birth).*$', '', parents_name, flags=re.IGNORECASE)
+                parents_name = re.sub(r'^\.+', '', parents_name)  # Remove leading periods
+                parents_name = re.sub(r'([A-Za-z])\.([A-Za-z])', r'\1. \2', parents_name)  # Fix spacing
+                
+                # Generic OCR error fixes for parents names (works for any name)
+                # Generic capitalization: Proper case for names
+                words = parents_name.split()
+                capitalized_words = []
+                for word in words:
+                    if word and word[0].isalpha():
+                        if len(word) > 1:
+                            capitalized_words.append(word[0].upper() + word[1:].lower())
+                        else:
+                            capitalized_words.append(word.upper())
+                    elif word.startswith('.'):
+                        capitalized_words.append(word)
+                    else:
+                        capitalized_words.append(word)
+                parents_name = ' '.join(capitalized_words)
+                
+                # Generic fix: common OCR character confusions
+                parents_name = re.sub(r'([A-Za-z])0([A-Za-z])', r'\1O\2', parents_name)
+                
+                if len(parents_name) > 2:
+                    return normalize_text(parents_name)
+        
+        # Fallback to compiled patterns
+        for pattern in _compiled_patterns['parents']:
+            match = pattern.search(text)
+            if match:
+                parents_name = match.group(1).strip()
+                parents_name = re.sub(r'\s+(Occupation|Phone|Email|Address|Age|Gender|Mobile|Date|Birth).*$', '', parents_name, flags=re.IGNORECASE)
+                parents_name = re.sub(r'^\.+', '', parents_name)  # Remove leading periods
+                parents_name = re.sub(r'([A-Z])\.([A-Z])', r'\1. \2', parents_name)  # Fix spacing
+                if len(parents_name) > 2:
+                    return normalize_text(parents_name)
+        
+        return None
+    except Exception as e:
+        logger.warning(f"Parents name extraction failed: {e}")
+        return None
+
+
 def extract_passport(text: str) -> Optional[str]:
     """Extract passport number from text."""
     try:
@@ -594,21 +989,26 @@ def extract_passport(text: str) -> Optional[str]:
 
 
 def extract_occupation(text: str) -> Optional[str]:
-    """Extract occupation/profession from text."""
+    """Extract occupation/profession from text with enhanced OCR error correction. Optimized for speed."""
     try:
-        patterns = [
-            r'(?:occupation|profession|job|designation)[:\s\-]+([A-Z][a-zA-Z\s]+?)(?:\s+(?:Phone|Email|Address|Age|Gender|$))',
-            r'(?:occupation|profession|job|designation)[:\s\-]+([^\n:]{2,50})',
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
+        # Use compiled patterns for speed
+        for pattern in _compiled_patterns['occupation']:
+            match = pattern.search(text)
             if match:
                 occupation = match.group(1).strip()
-                # Clean up trailing fields
-                occupation = re.sub(r'\s+(Phone|Email|Address|Age|Gender).*$', '', occupation, flags=re.IGNORECASE)
+                # Remove label words that might be captured
+                occupation = re.sub(r'^(?:occupation|ocupation|job|profession)\s*[:\-]?\s*', '', occupation, flags=re.IGNORECASE)
+                occupation = re.sub(r'\s+(Phone|Email|Address|Age|Gender|Mobile|Date|Birth|Mobile|Number).*$', '', occupation, flags=re.IGNORECASE)
+                occupation = occupation.rstrip('.').strip()
+                
                 if len(occupation) > 2:
-                    logger.info(f"[OCCUPATION] Extracted: {occupation}")
+                    # Generic OCR error fixes for occupations
+                    # Fix common OCR errors: 'x' at end often should be 'r' (e.g., "teachex" -> "teacher")
+                    occupation = re.sub(r'([a-z]+)x\b', r'\1r', occupation, flags=re.IGNORECASE)
+                    # Fix 'es' -> 'er' for occupations (e.g., "teaches" -> "teacher")
+                    occupation = re.sub(r'([a-z]+)es\b', r'\1er', occupation, flags=re.IGNORECASE)
+                    # Capitalize properly (first letter uppercase)
+                    occupation = occupation.capitalize()
                     return normalize_text(occupation)
         
         return None
@@ -617,48 +1017,63 @@ def extract_occupation(text: str) -> Optional[str]:
         return None
 
 
-def extract_address(text: str) -> Optional[str]:
+def extract_address(text: str, phone_number: Optional[str] = None, email: Optional[str] = None) -> Optional[str]:
     """Extract address (multi-line) from text with improved patterns. Handles Address Line1 and Line2."""
     try:
         logger.info(f"[ADDRESS] Extracting from text: {text[:300]}")
         
+        # Remove phone and email from text to avoid capturing them in address
+        text_for_address = text
+        if phone_number:
+            phone_clean = re.sub(r'[-.\s()]', '', phone_number)
+            text_for_address = re.sub(re.escape(phone_number), '', text_for_address)
+            text_for_address = re.sub(re.escape(phone_clean), '', text_for_address)
+        if email:
+            text_for_address = re.sub(re.escape(email), '', text_for_address)
+        
         # First, try to extract Address Line1 and Line2 separately
         # Handle OCR errors like "Adebress Linet", "Aderess Linet", "Address Linet" instead of "Address Line1"
         address_line1_patterns = [
-            r'(?:address\s+line\s*1|address\s+linet|adebress\s+linet|aderess\s+linet|address\s+linet1)[:\s]+([^\n:]+?)(?:\s+Address\s+Line\s*2|City|State|Country|Pin|Phone|Email|$)',
-            r'(?:address\s+line\s*1|address\s+linet)[:\s]+([^\n:]+?)(?:\n|Address\s+Line\s*2|City|State|Country|Pin|Phone|Email|$)',
+            r'(?:address\s+line\s*1|address\s+linet|adebress\s+linet|aderess\s+linet|address\s+linet1)[:\s]+([^\n:]+?)(?:\s+Address\s+Line\s*2|City|State|Country|Pin|Phone|Email|Mobile|Tel|$)',
+            r'(?:address\s+line\s*1|address\s+linet)[:\s]+([^\n:]+?)(?:\n|Address\s+Line\s*2|City|State|Country|Pin|Phone|Email|Mobile|Tel|$)',
         ]
         address_line1_match = None
         for pattern in address_line1_patterns:
-            address_line1_match = re.search(pattern, text, re.IGNORECASE)
+            address_line1_match = re.search(pattern, text_for_address, re.IGNORECASE)
             if address_line1_match:
                 break
         
         address_line2_patterns = [
-            r'(?:address\s+line\s*2|address\s+linet2)[:\s]+([^\n:]+?)(?:\s+City|State|Country|Pin|Phone|Email|$)',
-            r'(?:address\s+line\s*2)[:\s]+([^\n:]+?)(?:\n|City|State|Country|Pin|Phone|Email|$)',
+            r'(?:address\s+line\s*2|address\s+linet2)[:\s]+([^\n:]+?)(?:\s+City|State|Country|Pin|Phone|Email|Mobile|Tel|$)',
+            r'(?:address\s+line\s*2)[:\s]+([^\n:]+?)(?:\n|City|State|Country|Pin|Phone|Email|Mobile|Tel|$)',
         ]
         address_line2_match = None
         for pattern in address_line2_patterns:
-            address_line2_match = re.search(pattern, text, re.IGNORECASE)
+            address_line2_match = re.search(pattern, text_for_address, re.IGNORECASE)
             if address_line2_match:
                 break
         
         address_parts = []
         if address_line1_match:
             addr1 = address_line1_match.group(1).strip()
-            # Clean up OCR errors
-            addr1 = re.sub(r'\s+(Address\s+Line\s*2|City|State|Country|Pin|Phone|Email).*$', '', addr1, flags=re.IGNORECASE)
-            if addr1:
-                address_parts.append(addr1)
+            # Clean up OCR errors and trailing fields
+            addr1 = re.sub(r'\s+(Address\s+Line\s*2|City|State|Country|Pin|Phone|Email|Mobile|Tel).*$', '', addr1, flags=re.IGNORECASE)
+            # Remove phone numbers and emails that might have been captured
+            addr1 = re.sub(r'\d{7,15}', '', addr1)  # Remove phone-like numbers
+            addr1 = re.sub(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '', addr1)  # Remove emails
+            if addr1 and len(addr1.strip()) > 3:
+                address_parts.append(addr1.strip())
                 logger.info(f"[ADDRESS] Line1: {addr1}")
         
         if address_line2_match:
             addr2 = address_line2_match.group(1).strip()
             # Clean up trailing fields
-            addr2 = re.sub(r'\s+(City|State|Country|Pin|Code|Phone|Email).*$', '', addr2, flags=re.IGNORECASE)
-            if addr2:
-                address_parts.append(addr2)
+            addr2 = re.sub(r'\s+(City|State|Country|Pin|Code|Phone|Email|Mobile|Tel).*$', '', addr2, flags=re.IGNORECASE)
+            # Remove phone numbers and emails
+            addr2 = re.sub(r'\d{7,15}', '', addr2)
+            addr2 = re.sub(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '', addr2)
+            if addr2 and len(addr2.strip()) > 3:
+                address_parts.append(addr2.strip())
                 logger.info(f"[ADDRESS] Line2: {addr2}")
         
         if address_parts:
@@ -668,50 +1083,266 @@ def extract_address(text: str) -> Optional[str]:
         
         # Enhanced address patterns - be more specific to stop at next field
         patterns = [
-            # With labels - stop at City/State/Country (most specific)
-            r'(?:address|residence|location|addr\.?)[:\s]+([^\n:]+?)(?:\s+City|\s+State|\s+Country|$)',
+            # With labels - stop at City/State/Country/Pin/Phone/Email/Mobile (most specific)
+            r'(?:address|residence|location|addr\.?)[:\s]+([^\n:]+?)(?:\s+(?:City|State|Country|Pin|Phone|Email|Mobile|Tel|Mobile\s+Numb|Occupation|Date|Birth|Emailld)|$)',
             
-            # Street address pattern - stop at City/State/Country
-            r'(\d+\s+[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*\s+(?:Street|St|Avenue|Ave|Road|Rd|Lane|Ln|Drive|Dr|Boulevard|Blvd|Way|Circle|Ct|Court|Parkway|Pkwy|Place|Pl))(?:\s+City|\s+State|\s+Country|$)',
+            # Street address pattern - stop at City/State/Country/Mobile/Email
+            r'(\d+\s+[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*\s+(?:Street|St|Avenue|Ave|Road|Rd|Lane|Ln|Drive|Dr|Boulevard|Blvd|Way|Circle|Ct|Court|Parkway|Pkwy|Place|Pl))(?:\s+(?:City|State|Country|Pin|Phone|Email|Mobile|Tel|Mobile\s+Numb|Emailld)|$)',
             
-            # With labels - multi-line version
-            r'(?:address|residence|location|addr\.?)[:\s\-]+(.+?)(?:\n\n|\n(?:phone|email|name|age|gender|contact)|$)',
+            # With labels - multi-line version (stop at phone/email keywords)
+            r'(?:address|residence|location|addr\.?)[:\s\-]+(.+?)(?:\n\n|\n(?:phone|email|mobile|tel|mobile\s+numb|emailld|name|age|gender|contact|occupation|date|birth)|$)',
         ]
         
         for pattern in patterns:
-            match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
+            match = re.search(pattern, text_for_address, re.IGNORECASE | re.MULTILINE)
             if match:
                 addr = match.group(1).strip()
-                # Clean up - remove any trailing field labels or email addresses
-                addr = re.sub(r'\s+(City|State|Country|Phone|Email|Name|Age|Gender).*$', '', addr, flags=re.IGNORECASE)
+                # Clean up - remove any trailing field labels
+                addr = re.sub(r'\s+(City|State|Country|Phone|Email|Name|Age|Gender|Mobile|Tel|Occupation|Date|Birth).*$', '', addr, flags=re.IGNORECASE)
                 # Remove email addresses that might have been captured
                 addr = re.sub(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '', addr)
+                # Remove phone numbers (7-15 digits)
+                addr = re.sub(r'\b\d{7,15}\b', '', addr)
                 addr = addr.strip()
                 # Clean up multiple newlines
                 addr = re.sub(r'\n+', ' ', addr)  # Convert newlines to spaces for single-line addresses
                 # Remove extra whitespace
                 addr = re.sub(r'\s+', ' ', addr)
-                if len(addr) > 5 and not addr.lower().startswith('email'):  # Valid address should be longer than 5 chars and not start with "email"
+                # Validate: should be longer than 5 chars, not start with "email", and not be just numbers
+                if len(addr) > 5 and not addr.lower().startswith('email') and not addr.replace(' ', '').isdigit():
                     return normalize_text(addr[:200])  # Limit length
         
         # Fallback: look for lines with numbers and street names
-        lines = text.split('\n')
+        lines = text_for_address.split('\n')
         address_lines = []
         for i, line in enumerate(lines):
-            # Check if line contains address-like content
+            # Check if line contains address-like content (but not phone/email)
             if re.search(r'\d+.*(?:street|st|avenue|ave|road|rd|lane|ln|drive|dr|address|addr)', line, re.IGNORECASE):
-                # Collect this line and next 2-3 lines
-                address_lines = lines[i:min(i+4, len(lines))]
-                break
+                # Skip if it contains phone or email
+                if not re.search(r'\d{7,15}|@', line):
+                    # Collect this line and next 2-3 lines (but stop if we hit phone/email)
+                    for j in range(i, min(i+4, len(lines))):
+                        check_line = lines[j]
+                        if re.search(r'\d{7,15}|@', check_line):
+                            break
+                        address_lines.append(check_line)
+                    break
         
         if address_lines:
             addr = '\n'.join([l.strip() for l in address_lines if l.strip()])
-            return normalize_text(addr)
+            # Clean up phone and email from address
+            addr = re.sub(r'\d{7,15}', '', addr)
+            addr = re.sub(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '', addr)
+            addr = re.sub(r'\s+', ' ', addr).strip()
+            if len(addr) > 5:
+                return normalize_text(addr)
         
         return None
     except Exception as e:
         logger.warning(f"Address extraction failed: {e}")
         return None
+
+
+def extract_dynamic_fields(text: str) -> Dict[str, str]:
+    """
+    Dynamically extract ALL fields from text using generic label:value patterns.
+    Works for any document format - extracts ANY field that has a label, not just predefined ones.
+    
+    Args:
+        text: Raw OCR text
+        
+    Returns:
+        Dict with all extracted fields (field_name: field_value)
+    """
+    dynamic_fields = {}
+    
+    try:
+        # Enhanced patterns to catch ANY field format
+        # Pattern 1: "Label: Value" format (most common)
+        label_colon_pattern = re.compile(r'^([a-zA-Z][a-zA-Z\s]{1,40}?)[:\s\-\.]+(.+?)(?:\n|$)', re.IGNORECASE | re.MULTILINE)
+        
+        # Pattern 2: "Label Value" format (without colon)
+        label_space_pattern = re.compile(r'^([a-zA-Z][a-zA-Z\s]{2,40}?)\s+([A-Z0-9@a-z].+?)(?:\n|$)', re.IGNORECASE | re.MULTILINE)
+        
+        # Pattern 3: "Label - Value" format
+        label_dash_pattern = re.compile(r'^([a-zA-Z][a-zA-Z\s]{1,40}?)\s*-\s*(.+?)(?:\n|$)', re.IGNORECASE | re.MULTILINE)
+        
+        # Pattern 4: "Label. Value" format
+        label_dot_pattern = re.compile(r'^([a-zA-Z][a-zA-Z\s]{1,40}?)\s*\.\s*(.+?)(?:\n|$)', re.IGNORECASE | re.MULTILINE)
+        
+        # Split text into lines for better parsing
+        lines = text.split('\n')
+        
+        # Process each line
+        for line in lines:
+            line = line.strip()
+            if not line or len(line) < 5:
+                continue
+            
+            match = None
+            # Try all patterns
+            for pattern in [label_colon_pattern, label_space_pattern, label_dash_pattern, label_dot_pattern]:
+                match = pattern.match(line)
+                if match:
+                    break
+            
+            if match:
+                label = match.group(1).strip()
+                value = match.group(2).strip()
+                
+                # Skip if value is too short or looks invalid
+                if len(value) < 1 or len(label) < 2:
+                    continue
+                
+                # Skip if value contains only the label (OCR error)
+                if value.lower() == label.lower():
+                    continue
+                
+                # Skip if label is too long (probably not a field label)
+                if len(label) > 50:
+                    continue
+                
+                # Normalize label name to create field key
+                field_name = label.lower().strip()
+                # Fix common OCR errors in labels
+                field_name = re.sub(r'\s+', '_', field_name)  # Replace spaces with underscore
+                field_name = re.sub(r'[^\w]', '', field_name)  # Remove special chars
+                
+                # Keep original field name for unknown fields (don't force mapping)
+                original_field_name = field_name
+                
+                # Map common OCR errors and variations to standard field names
+                field_mapping = {
+                    'neme': 'name',
+                    'mame': 'name',
+                    'norme': 'name',
+                    'full_name': 'name',
+                    'applicant_name': 'name',
+                    'date_of_birth': 'date_of_birth',
+                    'dateofbirth': 'date_of_birth',
+                    'dateofbisth': 'date_of_birth',
+                    'datestbisth': 'date_of_birth',
+                    'date_st_bisth': 'date_of_birth',
+                    'dob': 'date_of_birth',
+                    'birth_date': 'date_of_birth',
+                    'parents_name': 'parents_name',
+                    'parentsname': 'parents_name',
+                    'parentsame': 'parents_name',
+                    'parentname': 'parents_name',
+                    'parent_name': 'parents_name',
+                    'occupation': 'occupation',
+                    'ocupation': 'occupation',
+                    'profession': 'occupation',
+                    'job': 'occupation',
+                    'phone': 'phone',
+                    'phone_number': 'phone',
+                    'phonenumber': 'phone',
+                    'mobile': 'phone',
+                    'mobile_number': 'phone',
+                    'mobilenumber': 'phone',
+                    'mobilenumbes': 'phone',
+                    'mobilenumb': 'phone',
+                    'contact': 'phone',
+                    'email': 'email',
+                    'email_id': 'email',
+                    'emailid': 'email',
+                    'emailld': 'email',
+                    'e_mail': 'email',
+                    'e-mail': 'email',
+                    'address': 'address',
+                    'addr': 'address',
+                    'residence': 'address',
+                    'location': 'address',
+                    'pin_code': 'pin_code',
+                    'pincode': 'pin_code',
+                    'zip_code': 'pin_code',
+                    'postal_code': 'pin_code',
+                    'city': 'city',
+                    'state': 'state',
+                    'country': 'country',
+                    'age': 'age',
+                    'gender': 'gender',
+                    'sex': 'gender',
+                }
+                
+                # Apply mapping for known fields, but keep original for unknown fields
+                mapped_field_name = None
+                if field_name in field_mapping:
+                    mapped_field_name = field_mapping[field_name]
+                elif field_name.endswith('_name') and 'parent' in field_name:
+                    mapped_field_name = 'parents_name'
+                elif 'phone' in field_name or 'mobile' in field_name or 'contact' in field_name:
+                    mapped_field_name = 'phone'
+                elif 'email' in field_name or 'mail' in field_name:
+                    mapped_field_name = 'email'
+                elif 'address' in field_name or 'addr' in field_name:
+                    mapped_field_name = 'address'
+                elif 'occupation' in field_name or 'job' in field_name or 'profession' in field_name:
+                    mapped_field_name = 'occupation'
+                elif 'date' in field_name:
+                    # Check if value contains birth-related keywords
+                    if 'birth' in value.lower() or 'bisth' in value.lower() or 'biosth' in value.lower() or 'dob' in value.lower():
+                        mapped_field_name = 'date_of_birth'
+                    # Otherwise keep as generic 'date' field
+                
+                # Use mapped name if available, otherwise use original (for unknown fields)
+                final_field_name = mapped_field_name if mapped_field_name else original_field_name
+                
+                # Generic cleanup: remove label words that might be captured in value
+                # Remove common label words from the start of value (OCR might capture them)
+                value = re.sub(r'^(?:phone|mobile|tel|contact|ph|number|numbes|numb|num|email|mail|emailld|emailid|address|addr|name|neme|mame|occupation|ocupation|job|date|birth|bisth|biosth|parents|parent|ame)\s*[:\-]?\s*', '', value, flags=re.IGNORECASE)
+                
+                # Remove trailing labels that might be captured
+                value = re.sub(r'\s+(Phone|Email|Address|Age|Gender|Mobile|Date|Birth|Occupation|Name|Parents|City|State|Country|Pin|Number|Id|ID|Code).*$', '', value, flags=re.IGNORECASE)
+                value = value.strip()
+                
+                # Special handling for date field - check if it contains birth date info
+                if 'date' in field_name.lower() and ('birth' in value.lower() or 'bisth' in value.lower() or 'biosth' in value.lower()):
+                    field_name = 'date_of_birth'
+                    # Extract just the date part, remove "St Biosth" etc.
+                    date_match = re.search(r'(\d{1,2}[/.\-lI]\d{1,2}[/.\-lI]\d{2,4})', value)
+                    if date_match:
+                        value = date_match.group(1)
+                
+                # Clean value - remove trailing labels
+                value = re.sub(r'\s+(Phone|Email|Address|Age|Gender|Mobile|Date|Birth|Occupation|Name|Parents|City|State|Country|Pin|Number|Id|ID|Code).*$', '', value, flags=re.IGNORECASE)
+                value = value.strip()
+                
+                # Only add if value is meaningful
+                if len(value) > 1 and value not in ['', 'None', 'N/A', 'NA', 'null']:
+                    # If field already exists, keep the longer/more complete value
+                    if final_field_name not in dynamic_fields or len(value) > len(dynamic_fields[final_field_name]):
+                        dynamic_fields[final_field_name] = value
+                        logger.debug(f"[DYNAMIC] Extracted field: {final_field_name} = {value[:50]}")
+        
+        # Also try to extract fields from multi-line patterns (for fields that span multiple lines)
+        # Look for patterns like "Field Name:\nValue Line 1\nValue Line 2"
+        multiline_pattern = re.compile(r'^([a-zA-Z][a-zA-Z\s]{1,40}?)[:\s\-\.]+\n(.+?)(?=\n(?:[A-Z][a-zA-Z\s]{1,40}?)[:\s\-\.]+|\n*$)', re.IGNORECASE | re.MULTILINE | re.DOTALL)
+        multiline_matches = multiline_pattern.finditer(text)
+        for match in multiline_matches:
+            label = match.group(1).strip()
+            value = match.group(2).strip()
+            
+            if len(value) > 1 and len(label) >= 2:
+                field_name = label.lower().strip()
+                field_name = re.sub(r'\s+', '_', field_name)
+                field_name = re.sub(r'[^\w]', '', field_name)
+                
+                # Clean multi-line value
+                value = re.sub(r'\n+', ' ', value)  # Convert newlines to spaces
+                value = re.sub(r'\s+', ' ', value).strip()  # Normalize whitespace
+                
+                if len(value) > 1:
+                    if field_name not in dynamic_fields or len(value) > len(dynamic_fields[field_name]):
+                        dynamic_fields[field_name] = value
+                        logger.debug(f"[DYNAMIC] Extracted multi-line field: {field_name} = {value[:50]}")
+        
+        logger.info(f"[DYNAMIC] Extracted {len(dynamic_fields)} dynamic fields: {list(dynamic_fields.keys())}")
+        return dynamic_fields
+        
+    except Exception as e:
+        logger.warning(f"Dynamic field extraction failed: {e}")
+        return {}
 
 
 def extract_all_fields(text: str, language: Optional[str] = None) -> Dict[str, Optional[str]]:
@@ -736,38 +1367,83 @@ def extract_all_fields(text: str, language: Optional[str] = None) -> Dict[str, O
     try:
         # Fast language detection - only if not provided, and use small sample
         if not language:
-            # Use only first 200 chars for fast detection
-            language = detect_language(text[:200] if len(text) > 200 else text, sample_size=200)
-            logger.debug(f"[DEBUG] Language detected: {language} (from sample)")
-        else:
-            logger.debug(f"[DEBUG] Using provided language: {language}")
+            # Use only first 100 chars for faster detection
+            language = detect_language(text[:100] if len(text) > 100 else text, sample_size=100)
         
-        # Normalize text first
+        # IMPORTANT: Extract from both normalized AND original text
+        # Normalized text helps with OCR errors, but original preserves structure
         normalized_text = normalize_text(text)
-        logger.info(f"[DEBUG] Normalized text length: {len(normalized_text)}")
         
         # Extract standard fields with multilingual patterns
+        # Extract phone and email first, as they're needed for other extractions
+        # Try both normalized and original text for better extraction
+        phone_number = extract_phone(normalized_text) or extract_phone(text)
+        email_address = extract_email(normalized_text) or extract_email(text)
+        
+        # Extract full name first
+        full_name = extract_name(normalized_text, language) or extract_name(text, language)
+        
+        # Parse name into components (first, middle, last)
+        name_components = {}
+        if full_name:
+            name_components = parse_name_components(full_name)
+        
+        # Extract fields - try both normalized and original text for maximum coverage
         fields = {
-            "name": extract_name(normalized_text, language),
-            "age": extract_age(normalized_text),
-            "gender": extract_gender(normalized_text),
-            "phone": extract_phone(normalized_text),
-            "email": extract_email(normalized_text),
-            "address": extract_address(normalized_text)
+            "name": full_name,  # Full name
+            "first_name": name_components.get("first_name"),
+            "middle_name": name_components.get("middle_name"),
+            "last_name": name_components.get("last_name"),
+            "age": extract_age(normalized_text) or extract_age(text),
+            "gender": extract_gender(normalized_text) or extract_gender(text),
+            "phone": phone_number,
+            "email": email_address,
+            "address": extract_address(normalized_text, phone_number=phone_number, email=email_address) or extract_address(text, phone_number=phone_number, email=email_address)
         }
         
-        # Extract additional common fields
+        # Extract additional common fields (PIN code needs phone to exclude it)
+        # Try both normalized and original text
         additional_fields = {
-            "date_of_birth": extract_date_of_birth(normalized_text),
-            "pin_code": extract_pin_code(normalized_text),
-            "aadhaar": extract_aadhaar(normalized_text),
-            "pan": extract_pan(normalized_text),
-            "passport": extract_passport(normalized_text),
-            "occupation": extract_occupation(normalized_text)
+            "date_of_birth": extract_date_of_birth(normalized_text) or extract_date_of_birth(text),
+            "parents_name": extract_parents_name(normalized_text) or extract_parents_name(text),
+            "occupation": extract_occupation(normalized_text) or extract_occupation(text),
+            "pin_code": extract_pin_code(normalized_text, phone_number=phone_number) or extract_pin_code(text, phone_number=phone_number),
+            "aadhaar": extract_aadhaar(normalized_text) or extract_aadhaar(text),
+            "pan": extract_pan(normalized_text) or extract_pan(text),
+            "passport": extract_passport(normalized_text) or extract_passport(text)
         }
         
         # Merge additional fields into main fields dict
         fields.update(additional_fields)
+        
+        # Extract dynamic fields (any other fields present in the document)
+        # Use BOTH original and normalized text for maximum coverage
+        dynamic_fields_raw = extract_dynamic_fields(text)
+        dynamic_fields_norm = extract_dynamic_fields(normalized_text)
+        
+        # Merge both dynamic field sets
+        all_dynamic_fields = {}
+        all_dynamic_fields.update(dynamic_fields_raw)
+        all_dynamic_fields.update(dynamic_fields_norm)
+        
+        # Merge dynamic fields intelligently
+        for field_name, field_value in all_dynamic_fields.items():
+            # Clean and normalize the dynamic field value
+            cleaned_value = normalize_text(field_value)
+            
+            if cleaned_value and len(cleaned_value) > 1:
+                # If field already exists, compare and keep the better one
+                if field_name in fields and fields[field_name]:
+                    existing_value = str(fields[field_name])
+                    # Keep the longer/more complete value
+                    if len(cleaned_value) > len(existing_value):
+                        fields[field_name] = cleaned_value
+                        logger.info(f"[DYNAMIC] Updated field {field_name} with better value")
+                else:
+                    # Field doesn't exist, add it (EVEN IF IT'S NOT A PREDEFINED FIELD)
+                    # This ensures ALL fields from the document are extracted, not just known ones
+                    fields[field_name] = cleaned_value
+                    logger.info(f"[DYNAMIC] Added field: {field_name} = {cleaned_value[:50]}")
         
         # Parse address into components if available
         address = fields.get("address")
@@ -828,8 +1504,35 @@ def extract_all_fields(text: str, language: Optional[str] = None) -> Dict[str, O
             fields["country"] = country.strip()
             logger.info(f"[COUNTRY] Extracted: {fields['country']}")
         
-        # Filter out None/null fields - only keep extracted fields
-        extracted_fields = {k: v for k, v in fields.items() if v is not None}
+        # Clean all extracted field values for accuracy and correctness
+        cleaned_fields = {}
+        for field_name, field_value in fields.items():
+            if field_value is not None:
+                # Determine field type for proper cleaning
+                field_type = "generic"
+                if field_name in ["name", "first_name", "middle_name", "last_name", "parents_name"]:
+                    field_type = "name"
+                elif field_name == "email":
+                    field_type = "email"
+                elif field_name in ["phone", "mobile"]:
+                    field_type = "phone"
+                elif field_name in ["date_of_birth", "dob"]:
+                    field_type = "date"
+                elif field_name in ["age", "pin_code", "aadhaar", "pan", "passport"]:
+                    field_type = "number"
+                
+                # Clean the value to ensure accuracy
+                cleaned_value = clean_extracted_value(str(field_value), field_type)
+                
+                # Only add if cleaned value is meaningful
+                if cleaned_value and len(cleaned_value) > 0:
+                    cleaned_fields[field_name] = cleaned_value
+                elif field_value and len(str(field_value).strip()) > 0:
+                    # If cleaning removed everything but original was valid, keep original
+                    cleaned_fields[field_name] = str(field_value).strip()
+        
+        # Filter out None/null/empty fields - only keep extracted fields
+        extracted_fields = {k: v for k, v in cleaned_fields.items() if v is not None and v != ""}
         
         # Calculate confidence scores only for extracted fields
         confidence_scores = {}
