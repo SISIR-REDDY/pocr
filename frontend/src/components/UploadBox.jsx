@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { Upload, FileText, Image as ImageIcon, X } from 'lucide-react'
 import axios from 'axios'
+import { API_EXTRACT_URL } from '../config'
 
 export default function UploadBox({ onExtractionStart, onExtractionComplete, onError }) {
   const [isDragging, setIsDragging] = useState(false)
@@ -46,7 +47,7 @@ export default function UploadBox({ onExtractionStart, onExtractionComplete, onE
       const formData = new FormData()
       formData.append('file', selectedFile)
 
-      const response = await axios.post('http://localhost:8000/api/extract', formData, {
+      const response = await axios.post(API_EXTRACT_URL, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },

@@ -1,0 +1,19 @@
+# Ignore files for Vercel deployment
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/logs/
+backend/sample_inputs/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.env.local
+.env.*.local
+node_modules/
+

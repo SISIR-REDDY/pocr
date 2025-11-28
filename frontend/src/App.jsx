@@ -5,6 +5,7 @@ import UploadBox from './components/UploadBox'
 import ExtractedForm from './components/ExtractedForm'
 import VerificationPanel from './components/VerificationPanel'
 import LoaderSpinner from './components/LoaderSpinner'
+import { API_VERIFY_URL } from './config'
 
 function App() {
   const [step, setStep] = useState('upload') // upload, extracting, form, verifying, results
@@ -50,7 +51,7 @@ function App() {
         extracted_fields: cleanedExtractedFields
       })
       
-      const response = await fetch('http://localhost:8000/api/verify', {
+      const response = await fetch(API_VERIFY_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
