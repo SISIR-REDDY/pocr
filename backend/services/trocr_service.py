@@ -23,6 +23,7 @@ _models_cache = {}
 _processors_cache = {}
 _tokenizers_cache = {}
 _models_loaded = False
+_initialized_models = set()  # Track which models are initialized
 
 # Model paths (relative to backend directory)
 BACKEND_DIR = Path(__file__).parent.parent.resolve()
@@ -103,6 +104,7 @@ def load_trocr_model(model_type: str = "handwritten") -> Optional[tuple]:
         _processors_cache[cache_key] = processor
         _tokenizers_cache[cache_key] = tokenizer
         
+        _initialized_models.add(model_type)
         _models_loaded = True
         logger.info(f"[OK] Model loaded successfully on {device}")
         
@@ -115,18 +117,23 @@ def load_trocr_model(model_type: str = "handwritten") -> Optional[tuple]:
 
 def initialize_models():
     """Initialize both models at startup."""
+    global _models_loaded, _initialized_models
+    
     logger.info("Initializing TrOCR models...")
     handwritten = load_trocr_model("handwritten")
     printed = load_trocr_model("printed")
     
     if handwritten and printed:
-        logger.info("[OK] All models initialized successfully")
+        logger.info("[OK] All TrOCR models initialized successfully")
+        _models_loaded = True
         return True
     elif handwritten or printed:
-        logger.warning("[WARN] Only one model loaded successfully")
+        logger.warning("[WARN] Only one TrOCR model loaded successfully")
+        _models_loaded = True
         return True
     else:
-        logger.error("[FAIL] Failed to load any models")
+        logger.error("[FAIL] Failed to load any TrOCR models")
+        _models_loaded = False
         return False
 
 

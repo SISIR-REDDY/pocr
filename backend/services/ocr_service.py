@@ -24,6 +24,7 @@ logger = setup_logger("ocr_service")
 
 # Global PaddleOCR instance cache (one per language)
 _paddle_ocr_instances = {}
+_initialized_languages = set()  # Track initialized languages
 
 # Simple result cache (in-memory, for speed)
 _ocr_cache = {}
@@ -73,6 +74,7 @@ def initialize_paddleocr(lang: str = 'en') -> Optional[PaddleOCR]:
             return None
         
         _paddle_ocr_instances[lang] = ocr
+        _initialized_languages.add(lang)
         logger.info(f"[OK] PaddleOCR initialized successfully for {lang}")
         
         return ocr
@@ -341,71 +343,6 @@ def extract_text_from_image(
                         text_lines.extend([str(t).strip() for t in value if t and str(t).strip()])
                     elif value:
                         text_lines.append(str(value).strip())
-        
-        # Step 7: Parse results efficiently
-        text_lines = []
-        confidences = []
-        boxes = []
-        
-        ocr_result = result[0]
-        
-        # Handle different PaddleOCR result formats
-        # Format 1: OCRResult object (newer PaddleOCR/PaddleX)
-        if hasattr(ocr_result, 'rec_texts') or (isinstance(ocr_result, dict) and 'rec_texts' in ocr_result):
-            try:
-                if hasattr(ocr_result, 'rec_texts'):
-                    rec_texts = ocr_result.rec_texts
-                    rec_scores = getattr(ocr_result, 'rec_scores', None)
-                    rec_boxes = getattr(ocr_result, 'rec_boxes', None)
-                else:
-                    rec_texts = ocr_result.get('rec_texts', [])
-                    rec_scores = ocr_result.get('rec_scores', None)
-                    rec_boxes = ocr_result.get('rec_boxes', None)
-                
-                if rec_texts:
-                    for i, text in enumerate(rec_texts):
-                        if text and str(text).strip():
-                            text_lines.append(str(text).strip())
-                            if rec_scores and i < len(rec_scores):
-                                confidences.append(float(rec_scores[i]))
-                            else:
-                                confidences.append(0.8)
-                            
-                            if return_detailed and rec_boxes and i < len(rec_boxes):
-                                box = rec_boxes[i]
-                                if hasattr(box, 'tolist'):
-                                    box = box.tolist()
-                                boxes.append({
-                                    "text": str(text).strip(),
-                                    "confidence": float(rec_scores[i]) if rec_scores and i < len(rec_scores) else 0.8,
-                                    "bbox": box
-                                })
-            except Exception as e:
-                logger.warning(f"Error parsing OCRResult format: {e}, trying list format")
-        
-        # Format 2: List format (standard PaddleOCR)
-        if not text_lines and isinstance(ocr_result, list):
-            for line in ocr_result:
-                if line and len(line) >= 2:
-                    box = line[0]
-                    text_info = line[1]
-                    
-                    if isinstance(text_info, (list, tuple)) and len(text_info) >= 2:
-                        text, confidence = str(text_info[0]), float(text_info[1])
-                    else:
-                        text = str(text_info)
-                        confidence = 0.5
-                    
-                    if text and text.strip():
-                        text_lines.append(text.strip())
-                        confidences.append(confidence)
-                        
-                        if return_detailed:
-                            boxes.append({
-                                "text": text.strip(),
-                                "confidence": confidence,
-                                "bbox": box
-                            })
         
         # Step 8: Merge text efficiently
         merged_text = "\n".join(text_lines)

@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from routes import extract, verify
 from utils.logger import setup_logger, log_error_with_traceback
 from services.ocr_service import initialize_paddleocr
+from services.trocr_service import initialize_models as initialize_trocr_models
 
 # Configure logging
 logger = setup_logger("main")
@@ -54,6 +55,17 @@ async def lifespan(app: FastAPI):
         logger.error("[FAIL] No PaddleOCR models initialized")
         logger.warning("Server will start but OCR may fail")
     
+    # Initialize TrOCR models
+    logger.info("Initializing TrOCR models...")
+    try:
+        trocr_initialized = initialize_trocr_models()
+        if trocr_initialized:
+            logger.info("[OK] TrOCR models initialized successfully")
+        else:
+            logger.warning("[WARN] TrOCR models initialization failed or partial")
+    except Exception as e:
+        logger.warning(f"[WARN] TrOCR initialization error: {e}")
+    
     logger.info("=" * 60)
     
     yield  # Application runs here
@@ -65,8 +77,8 @@ async def lifespan(app: FastAPI):
 # Create FastAPI app with lifespan
 app = FastAPI(
     title="MOSIP OCR API",
-    description="Offline PaddleOCR multilingual OCR service (English, Hindi, Arabic) with field extraction",
-    version="3.0.0",
+    description="Offline OCR service with PaddleOCR (multilingual) and TrOCR (handwritten/printed) support",
+    version="3.1.0",
     lifespan=lifespan
 )
 
@@ -103,17 +115,25 @@ app.include_router(verify.router)
 async def root():
     """Health check endpoint."""
     from services.ocr_service import _initialized_languages
+    from services.trocr_service import _models_loaded
     
     return {
         "status": "ok",
-        "service": "MOSIP OCR API (PaddleOCR Multilingual)",
-        "version": "3.0.0",
+        "service": "MOSIP OCR API (PaddleOCR + TrOCR)",
+        "version": "3.1.0",
         "models": {
-            "languages": list(_initialized_languages) if _initialized_languages else [],
-            "status": "ready" if _initialized_languages else "initializing"
+            "paddleocr": {
+                "languages": list(_initialized_languages) if _initialized_languages else [],
+                "status": "ready" if _initialized_languages else "initializing"
+            },
+            "trocr": {
+                "status": "ready" if _models_loaded else "not_loaded",
+                "models": ["handwritten", "printed"] if _models_loaded else []
+            }
         },
         "offline": True,
-        "supported_languages": ["en", "hi", "ar", "multi"]
+        "supported_languages": ["en", "hi", "ar", "multi"],
+        "ocr_engines": ["PaddleOCR", "TrOCR"]
     }
 
 
@@ -121,25 +141,41 @@ async def root():
 async def health():
     """Health check endpoint."""
     from services.ocr_service import _initialized_languages
+    from services.trocr_service import _models_loaded
     
-    if not _initialized_languages:
+    paddleocr_ready = bool(_initialized_languages)
+    trocr_ready = _models_loaded
+    
+    if not paddleocr_ready and not trocr_ready:
         return JSONResponse(
             status_code=503,
             content={
-                "status": "degraded",
-                "message": "PaddleOCR models not initialized",
+                "status": "unhealthy",
+                "message": "No OCR models initialized",
                 "models": {
-                    "initialized": list(_initialized_languages),
-                    "status": "initializing"
+                    "paddleocr": {
+                        "initialized": list(_initialized_languages),
+                        "status": "not_ready"
+                    },
+                    "trocr": {
+                        "status": "not_ready" if not trocr_ready else "ready"
+                    }
                 }
             }
         )
     
+    status = "healthy" if (paddleocr_ready and trocr_ready) else "degraded"
+    
     return {
-        "status": "healthy",
+        "status": status,
         "models": {
-            "initialized": list(_initialized_languages),
-            "status": "ready"
+            "paddleocr": {
+                "initialized": list(_initialized_languages),
+                "status": "ready" if paddleocr_ready else "not_ready"
+            },
+            "trocr": {
+                "status": "ready" if trocr_ready else "not_ready"
+            }
         }
     }
 

@@ -21,6 +21,7 @@ logger = setup_logger("paddleocr_service")
 # Global PaddleOCR instance cache
 _paddle_ocr_instance = None
 _initialized = False
+_initialization_error = None
 
 
 def initialize_paddleocr(use_gpu: bool = False) -> Optional[PaddleOCR]:
@@ -33,7 +34,7 @@ def initialize_paddleocr(use_gpu: bool = False) -> Optional[PaddleOCR]:
     Returns:
         PaddleOCR instance or None if failed
     """
-    global _paddle_ocr_instance, _initialized
+    global _paddle_ocr_instance, _initialized, _initialization_error
     
     if _initialized and _paddle_ocr_instance is not None:
         return _paddle_ocr_instance
@@ -62,11 +63,13 @@ def initialize_paddleocr(use_gpu: bool = False) -> Optional[PaddleOCR]:
         
         _paddle_ocr_instance = ocr
         _initialized = True
+        _initialization_error = None
         logger.info("[OK] PaddleOCR initialized successfully")
         
         return ocr
         
     except Exception as e:
+        _initialization_error = str(e)
         logger.error(f"Failed to initialize PaddleOCR: {e}", exc_info=True)
         return None
 
